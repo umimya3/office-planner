@@ -604,7 +604,7 @@ input[type=range].lp-range { flex: 1; accent-color: var(--accent); }
     <div class="panel-section">
       <details id="obj-list-sec">
         <summary class="panel-title" id="obj-list-sum" style="cursor:pointer;">📋 物のリスト</summary>
-        <input class="prop-input" id="obj-list-filter" placeholder="名前・物品ID・細目で絞り込み" style="margin:6px 0;">
+        <input class="prop-input" id="obj-list-filter" placeholder="名前・物品ID・細目で検索（図上で強調）" style="margin:6px 0;">
         <div id="obj-list" style="max-height:200px;overflow:auto;"></div>
       </details>
     </div>
@@ -897,6 +897,21 @@ function draw(){
 
   for(const obj of objects){ if(vis(obj.layerId,1)) drawObject(obj); }
   for(const obj of objects){ if(vis(obj.layerId,1) && selectedIds.has(obj.id)) drawSelHandle(obj); }
+  /* 物のリストで絞り込み中: ヒットした物だけを目立たせる（他は白っぽく薄める）。印刷・画像保存では出さない */
+  const HITS = window._opHits;
+  if(!opPrinting && HITS && HITS.size){
+    ctx.save(); ctx.globalAlpha = .62; ctx.fillStyle = (mono||isLight) ? '#ffffff' : '#0b0d14';
+    ctx.fillRect(X0, Y0, X1-X0, Y1-Y0); ctx.restore();
+    for(const obj of objects){ if(HITS.has(obj.id) && vis(obj.layerId,1)) drawObject(obj); }
+    for(const obj of objects){
+      if(!HITS.has(obj.id) || !vis(obj.layerId,1)) continue;
+      const pw=mToPx(obj.w), ph=mToPx(obj.h);
+      ctx.save(); ctx.translate(mToPx(obj.x)+pw/2, mToPx(obj.y)+ph/2); ctx.rotate((obj.rot||0)*Math.PI/180);
+      ctx.setLineDash([]); ctx.strokeStyle = '#ff2d6f'; ctx.lineWidth = 3; ctx.strokeRect(-pw/2-6, -ph/2-6, pw+12, ph+12);
+      ctx.globalAlpha = .45; ctx.lineWidth = 1.5; ctx.strokeRect(-pw/2-12, -ph/2-12, pw+24, ph+24);
+      ctx.restore();
+    }
+  }
   if(!opPrinting && typeof window._opDrawOverlays === 'function') window._opDrawOverlays();   // ルーラー・人物（印刷中は出さない）
   ctx.restore();
 }
@@ -4615,7 +4630,7 @@ window.get3DRefs = function(){
 (function(){
 'use strict';
 
-const APP_VERSION   = 'v1.11.0';
+const APP_VERSION   = 'v1.11.1';
 const APP_UPDATED   = '2026-11-10';
 window._opAppInfo = {version:APP_VERSION, updated:APP_UPDATED};
 const SLOTS_KEY     = 'op_slots_v1';
@@ -5052,15 +5067,17 @@ document.head.appendChild(st);
 const sec=document.getElementById('obj-list-sec'), sum=document.getElementById('obj-list-sum');
 const listEl=document.getElementById('obj-list'), filterEl=document.getElementById('obj-list-filter');
 const nameOf=o=>((typeof o.label==='string'&&o.label.trim())||o.defName||o.name||'（名称なし）');
-let timer=null;
+let timer=null, hitKey='';
+function setHits(ids){ const k=ids?ids.join(','):''; if(k===hitKey) return; hitKey=k; window._opHits=ids?new Set(ids):null; draw(); }
 function visibleObjs(){ return objects.filter(o=>typeof isLayerVisible!=='function'||isLayerVisible(o.layerId||1)); }
 function render(){
   timer=null;
   const vis=visibleObjs();
   sum.textContent='📋 物のリスト（'+vis.length+'）';
-  if(!sec.open) return;
+  if(!sec.open){ setHits(null); window._opHitsArr=[]; return; }
   const nq=opIdKey(filterEl.value), dm=opDupIdMap();
   const arr=vis.filter(o=>!nq||opIdKey(nameOf(o)+' '+(o.itemId||'')+' '+(o.note||'')).indexOf(nq)>=0);
+  setHits(nq&&arr.length ? arr.map(o=>o.id) : null); window._opHitsArr=nq?arr:[];
   listEl.textContent='';
   if(!arr.length){ const e=document.createElement('div'); e.style.cssText='padding:8px;font-size:11px;color:var(--text3);'; e.textContent=vis.length?'該当する物がありません':'物がありません'; listEl.appendChild(e); return; }
   const fmt=v=>String(Number((+v).toFixed(1)));
@@ -5084,6 +5101,8 @@ function render(){
 window._opObjListRefresh=function(){ if(timer) clearTimeout(timer); timer=setTimeout(render,150); };
 sec.addEventListener('toggle',render);
 filterEl.addEventListener('input',render);
+/* 1件だけに絞れたら、その物が画面の中央に来るようにする（IDを打てば場所へ飛ぶ） */
+filterEl.addEventListener('input',()=>{ const a=window._opHitsArr; if(a && a.length===1) centerOn(a[0].x+a[0].w/2, a[0].y+a[0].h/2); });
 render();
 
 /* ── 左右パネルの折りたたみ ── */
