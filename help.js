@@ -117,7 +117,7 @@ overlay.innerHTML = `
   <div id="help-header">
     <span style="font-size:18px;">📖</span>
     <div id="help-title">Office Planner — 操作ガイド</div>
-    <span id="help-version">v1.10.0</span>
+    <span id="help-version">v1.11.1</span>
     <button id="help-recovery" class="hbtn" title="診断情報のコピー・保存データの退避・復旧操作">🩺 診断・復旧</button>
     <button id="help-close">✕ 閉じる</button>
   </div>
@@ -182,17 +182,18 @@ overlay.innerHTML = `
       <div class="h-note">右クリックメニューには、コピー・貼り付け・複製・±90°回転・最前面／最背面・削除があります。</div>
       <div class="h-h2">右パネル</div>
       <div class="h-grid">
-        <div class="h-card"><div class="h-card-title">表示設定・部屋</div><div class="h-card-body">グリッド（10cm／1m）、ラベル、スナップのON/OFF<br>部屋サイズ（幅・奥行）、面積、家具数、線数<br>部屋の外の余白、部屋の外にある物の個数（「選択」「中へ戻す」）</div></div>
-        <div class="h-card"><div class="h-card-title">選択中のプロパティ</div><div class="h-card-body">名前・X・Y・幅・奥行（0.05m以上）・回転（度）・色。数値欄が空や不正な値のときは、直前の正常な値が保たれます。</div></div>
+        <div class="h-card"><div class="h-card-title">表示設定・部屋</div><div class="h-card-body">グリッド（10cm／1m）、ラベル（名前／物品ID／細目・メモのどれを出すか）、スナップ、白黒印刷モードのON/OFF<br>部屋サイズ（幅・奥行）、面積、家具数、線数<br>部屋の外の余白、部屋の外にある物の個数（「選択」「中へ戻す」）</div></div>
+        <div class="h-card"><div class="h-card-title">選択中のプロパティ</div><div class="h-card-body">ラベル・物品ID・細目／メモ・X・Y・幅・奥行（0.05m以上）・回転（度）・色。数値欄が空や不正な値のときは、直前の正常な値が保たれます。</div></div>
       </div>
       <div class="h-h2">ヘッダーのボタン</div>
       <div class="h-icon-row"><span class="icon">↶</span><b>↶ ／ ↷</b> — 元に戻す／やり直し（Ctrl＋Z ／ Ctrl＋Y）。</div>
       <div class="h-icon-row"><span class="icon">📥</span><b>読込</b> — JSONファイルを選ぶか、内容を貼り付けて読み込みます。</div>
       <div class="h-icon-row"><span class="icon">📤</span><b>保存</b> — 現在のレイアウトをJSONファイルとしてダウンロードします。</div>
+      <div class="h-icon-row"><span class="icon">🖼</span><b>画像保存</b> — 2Dの図面を、高解像度のPNG画像として保存します（範囲・解像度・配色を選べます。詳しくは「保存・読込」の項）。</div>
       <div class="h-icon-row"><span class="icon">📊</span><b>物品リスト</b> — 置いてある物を一覧にしたExcelファイル（.xlsx）を作ります。</div>
       <div class="h-icon-row"><span class="icon">📁</span><b>スロット</b> — 最大10件のレイアウトに名前を付けて保存・切替します。</div>
       <div class="h-icon-row"><span class="icon">📏</span><b>ルーラー</b> — 2点間の距離を測ります。</div>
-      <div class="h-icon-row"><span class="icon">🌓</span><b>モード</b> — ダーク／ライトの切替（3D表示にも反映されます）。</div>
+      <div class="h-icon-row"><span class="icon">🌓</span><b>テーマ</b> — 押すたびに「🌓 自動」→「☀ ライト」→「🌙 ダーク」と切り替わります。<b>自動</b>は端末（OS・ブラウザ）のライト／ダーク設定に合わせ、端末側で切り替えると、開いたまま追従します。選んだ設定は記憶され、3D表示にも反映されます。</div>
       <div class="h-icon-row"><span class="icon">🗑</span><b>全クリア</b> — 家具と配線をすべて消します（確認画面が出ます）。</div>
       <div class="h-icon-row"><span class="icon">📖</span><b>ヘルプ</b> — この画面です（F1キーでも開きます）。右上の「🩺 診断・復旧」から、不具合時の対処ができます。</div>
       <div class="h-icon-row"><span class="icon">◧</span><b>◧ ／ ◨</b> — 左のパネル／右のパネルを隠す・出す（画面が狭いときに便利です。設定は記憶されます）。</div>
@@ -216,10 +217,29 @@ overlay.innerHTML = `
       </table>
       <div class="h-h2">🔍 検索</div>
       <p class="h-p">家具・構造・備品・OA用品のタブ上部にある検索窓に、品目名またはカテゴリ名の一部を入力すると絞り込めます。<span class="h-badge">Ctrl＋F</span> で検索窓に移動できます。</p>
+      <div class="h-h2">🏷 物品ID・細目・メモ</div>
+      <p class="h-p">実際の物に貼ってある管理シールの番号（例: KA010111）や、注意書きなどを、物ごとに記録できます。物を1つ選ぶと、右パネルに入力欄が出ます。</p>
+      <table class="h-tbl">
+        <tr><th>項目</th><th>内容</th></tr>
+        <tr><td>物品ID</td><td>40文字まで。全角／半角・大文字／小文字・前後の空白の違いは区別せず、同じIDとして扱います。同じIDの物が他にもあると、入力欄の下に警告が出ます（物のリストにも「重複」と出ます）</td></tr>
+        <tr><td>細目・メモ</td><td>120文字まで。「壊れやすい」「業務用デスク」など、自由に書けます</td></tr>
+        <tr><td>図面に表示</td><td>右パネル「表示設定」の「└ 物品ID」「└ 細目・メモ」をONにすると、物のラベルに出ます（「└ 名前」とは別々に切り替えられます）。IDの付け忘れを探すときは、「└ 名前」をOFFにして「└ 物品ID」だけをONにすると、未設定の物に「（ID未設定）」と出ます</td></tr>
+      </table>
+      <div class="h-note">物品IDと細目・メモは、物をコピーして貼り付けたときには引き継がれません（IDは物ごとに固有の番号のため）。保存データ（JSONファイル・スロット・自動保存）には入ります。この機能を入れる前に保存した古いデータも、そのまま読み込めます（その場合、ID・メモは空になります）。</div>
+      <div class="h-h2">🔎 物を探す（図面上で強調）</div>
+      <p class="h-p">右パネルの「📋 物のリスト」を開き、検索欄に、名前・物品ID・細目／メモの一部を入力します。</p>
+      <table class="h-tbl">
+        <tr><th>場面</th><th>動き</th></tr>
+        <tr><td>図面の表示</td><td>ヒットした物にピンク色の枠が付き、ほかの物は白っぽく薄くなります</td></tr>
+        <tr><td>1件だけに絞れたとき</td><td>その物が画面の中央に来ます（物品IDを打てば、その場所へ移動します）</td></tr>
+        <tr><td>リストの行をクリック</td><td>その物を選び、その場所を表示します</td></tr>
+        <tr><td>解除</td><td>検索欄を空にするか、「物のリスト」を閉じます</td></tr>
+      </table>
+      <div class="h-note">検索の対象は物（家具・備品など）で、配線の線は含まれません。非表示レイヤーの物は出ません。強調は2D表示の画面だけで、画像保存には写りません。印刷するときは、検索欄を空にしてから行ってください。</div>
       <div class="h-h2">配置したあとの操作</div>
       <table class="h-tbl">
         <tr><th>やりたいこと</th><th>操作</th></tr>
-        <tr><td>名前を変える</td><td>右パネルの「名前」欄</td></tr>
+        <tr><td>表示名を変える</td><td>右パネルの「ラベル」欄</td></tr>
         <tr><td>正確な位置・大きさにする</td><td>右パネルの X・Y・幅・奥行に数値を入力（メートル）</td></tr>
         <tr><td>同じものを並べる</td><td>Ctrl＋C → Ctrl＋V を繰り返す、または Ctrl＋D</td></tr>
         <tr><td>まとめて動かす</td><td>Ctrl＋クリックで複数選択してドラッグ</td></tr>
@@ -233,7 +253,7 @@ overlay.innerHTML = `
         <tr><td>外にある物を探す</td><td>右パネルの「部屋の外にある物」の個数と、「選択」（選んでその場所を表示）</td></tr>
         <tr><td>外にある物を部屋に戻す</td><td>「中へ戻す」（直前の状態は、スロット画面の「↩ 直前の状態に戻す」で戻せます）</td></tr>
         <tr><td>全部を一度に見る</td><td>右下の「⛶」（全体にフィット）</td></tr>
-        <tr><td>一覧から探して移動</td><td>右パネルの「📋 物のリスト」（名前で絞り込めます。クリックでその物を選び、その場所を表示します。非表示レイヤーの物は出ません）</td></tr>
+        <tr><td>一覧から探して移動</td><td>右パネルの「📋 物のリスト」（名前・物品ID・細目／メモで検索できます。クリックでその物を選び、その場所を表示します。非表示レイヤーの物は出ません）</td></tr>
       </table>
       <div class="h-note">部屋の外に置いた物も3D表示には出ます（壁と床は、部屋の部分だけです）。余白は保存され、読み込んだときも再現されます。外に置いた物があるときは、余白をそれより狭くできません。</div>
       <div class="h-h2">ドア・窓・階段</div>
@@ -389,8 +409,26 @@ overlay.innerHTML = `
       </table>
       <p class="h-p">出力前の画面で、次を選べます：同じ物を1行にまとめるか（まとめない場合は1点1行）／非表示のレイヤーの物を除くか／構造タブの物を含めるか／部屋の外の物にコメントを入れるか。画面には、出力される内容のプレビューが出ます。</p>
       <div class="h-note">壁・窓・ドアなどの構造物（構造タブの物）と配線は、標準では含まれません。ファイル名は「物品リスト_スロット名_日付.xlsx」で、ブラウザの保存先（ダウンロード）に保存されます。</div>
+      <div class="h-h2">🖼 画像保存（高解像度PNG）</div>
+      <p class="h-p">ヘッダーの「🖼 画像保存」で、2Dの図面をPNG画像として保存できます。画面のスクリーンショットではなく、図面を指定の細かさで描き直すため、拡大しても粗くなりません。選択の枠・ルーラー・シミュレーションの人物は写りません。ラベルやグリッドの表示は、いまの画面の設定に従います。</p>
+      <table class="h-tbl">
+        <tr><th>項目</th><th>選べる内容</th></tr>
+        <tr><td>範囲</td><td>部屋＋置いたもの全体（部屋の外に置いた物も含み、まわりに少し余白がつきます）／部屋のみ／表示範囲すべて（部屋の外の余白まで）</td></tr>
+        <tr><td>解像度</td><td>標準（長辺 約2400px）／高（約4800px）／最高（約9000px）</td></tr>
+        <tr><td>配色</td><td>ライト（白背景・カラー）／白黒印刷用／いまの表示のまま。画面がダークテーマでも、ライトや白黒で保存できます</td></tr>
+      </table>
+      <div class="h-note">出力サイズは、保存の前に画面に表示されます。スマホなどでは、端末の上限に合わせて自動で小さくなります。画面の拡大率が小さくても、ラベルが読める大きさ（1mあたり60px以上）で描かれます。ファイル名は「office-plan-日付-時刻.png」で、選んだ設定は次回も使われます。保存できるのは2Dの図面だけで、3D表示は対象外です。</div>
+      <div class="h-h2">⬜ 白黒印刷モード</div>
+      <p class="h-p">右パネル「表示設定」の「白黒印刷モード」をONにすると、2Dの図面が白黒印刷向けの表示になります（画面のテーマがダークでも同じです）。この設定は記憶されます。</p>
+      <table class="h-tbl">
+        <tr><th>対象</th><th>表示</th></tr>
+        <tr><td>物</td><td>元の色の明るさに応じた薄い灰色で塗り、枠と文字は黒にします</td></tr>
+        <tr><td>配線・線</td><td>すべて黒にします。種類は、線の形（実線・破線・点線など）で見分けます。端の記号は、電気「電」・LAN「L」・電話「T」・給排水「水」・ガス「ガ」です</td></tr>
+        <tr><td>背景・グリッド</td><td>白地に薄い灰色の線にします</td></tr>
+      </table>
       <div class="h-h2">🖨 印刷</div>
       <p class="h-p">印刷用のボタンはありません。ブラウザの印刷（Ctrl＋P）を使ってください。印刷時にメニュー類を隠す設定を入れていますが、仕上がりは環境によって異なるため、印刷プレビューで確認してください。用紙には部屋の外の余白も含まれます（余白を0mにすると、部屋だけになります）。</p>
+      <div class="h-note">白黒で印刷するときは、先に「白黒印刷モード」をONにしてください。印刷の直前だけ、選択の枠やルーラーなどを消して出力します。紙ではなく画像で渡したいときは、「🖼 画像保存」が便利です。</div>
       <div class="h-h2">🛟 うまく動かないとき</div>
       <p class="h-p">ヘルプ右上の「🩺 診断・復旧」（エラーログ画面の「🛟 復旧・診断」でも同じです）から、次のことができます。アプリが起動できないときは、この画面が自動で開きます。</p>
       <table class="h-tbl">
@@ -444,6 +482,7 @@ overlay.innerHTML = `
 </div>
 `;
 document.body.appendChild(overlay);
+try{ if(typeof APP_VERSION!=='undefined') document.getElementById('help-version').textContent=APP_VERSION; }catch(e){}
 
 // ── タブ切替 ────────────────────────────────────────────────
 overlay.querySelectorAll('.help-tab').forEach(tab=>{
