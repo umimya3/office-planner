@@ -330,6 +330,8 @@
   --canvas-bg: #0b0d14;
 }
 
+body { color-scheme: dark; }
+body.light-mode { color-scheme: light; }
 body.light-mode {
   /* Light Mode */
   --bg: #f5f7fa; --surface: #ffffff; --surface2: #edf2f7; --surface3: #e2e8f0;
@@ -357,6 +359,11 @@ body.light-mode {
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; transition: background 0.3s, color 0.3s; }
  
+/* 画像保存ダイアログ */
+.ie-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ie-row label { width: 52px; font-size: 12px; color: var(--text2); flex-shrink: 0; }
+.ie-row select { flex: 1; min-width: 0; background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 6px 8px; font-size: 12px; }
+.ie-info { font-size: 11px; color: var(--text3); margin: 4px 0 16px; line-height: 1.7; min-height: 1.7em; }
 /* HEADER */
 #header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 12px; height: 50px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; z-index: 100; }
 .logo { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
@@ -497,12 +504,42 @@ input[type=range].lp-range { flex: 1; accent-color: var(--accent); }
 </style>
 </head>
 <body>
+<script>
+/* テーマ: 'auto'(端末の設定に従う) / 'light' / 'dark'。ページ表示の直後に反映してチラつきを防ぐ */
+(function(){
+  var KEY='op_theme_v1', mq=null;
+  try{ mq=window.matchMedia('(prefers-color-scheme: dark)'); }catch(e){}
+  function mode(){ try{ var v=localStorage.getItem(KEY); return (v==='light'||v==='dark')?v:'auto'; }catch(e){ return 'auto'; } }
+  function dark(m){ return m==='dark' || (m==='auto' && (!mq || mq.matches)); }
+  var LABEL={auto:'🌓 自動',light:'☀ ライト',dark:'🌙 ダーク'};
+  function label(){
+    var b=document.getElementById('btn-theme'), m=mode();
+    if(b){ b.textContent=LABEL[m]; b.title='テーマ切替（自動＝端末の設定に合わせる）'; }
+  }
+  function apply(m, persist){
+    if(persist){ try{ localStorage.setItem(KEY,m); }catch(e){} }
+    document.body.classList.toggle('light-mode', !dark(m));
+    label();
+    try{ if(typeof draw==='function') draw(); }catch(e){}
+    try{ if(typeof window._opApply3DTheme==='function') window._opApply3DTheme(); }catch(e){}
+  }
+  window._opThemeMode=mode;
+  window._opApplyTheme=apply;
+  document.body.classList.toggle('light-mode', !dark(mode()));
+  document.addEventListener('DOMContentLoaded', label);
+  if(mq){
+    var onChg=function(){ if(mode()==='auto') apply('auto',false); };
+    if(mq.addEventListener) mq.addEventListener('change',onChg); else if(mq.addListener) mq.addListener(onChg);
+  }
+})();
+</script>
  
 <div id="header">
   <div class="logo"><span>Office</span> Planner</div>
   <div class="spacer"></div>
   <button class="hbtn primary" id="btn-import">📥 読込</button>
   <button class="hbtn" id="btn-export">📤 保存</button>
+  <button class="hbtn" id="btn-imgexp" title="図面を高解像度の画像(PNG)で保存します">🖼 画像保存</button>
   <button class="hbtn" id="btn-ruler">📏 ルーラー</button>
   <button class="hbtn" id="btn-theme" title="テーマ切替">🌓 モード</button>
   <button class="hbtn danger" id="btn-clear">🗑 全クリア</button>
@@ -645,6 +682,35 @@ input[type=range].lp-range { flex: 1; accent-color: var(--accent); }
   </div>
 </div>
  
+<div class="modal-overlay" id="modal-imgexp">
+  <div class="modal">
+    <h3>🖼 レイアウトを画像で保存</h3>
+    <p>画面のスクリーンショットではなく、図面を高解像度で描き直してPNGにします。ラベル・グリッドの表示設定は、いまの画面のものを使います。</p>
+    <div class="ie-row"><label for="ie-area">範囲</label>
+      <select id="ie-area">
+        <option value="all">部屋＋置いたもの全体</option>
+        <option value="room">部屋のみ</option>
+        <option value="work">表示範囲すべて（部屋の外の余白まで）</option>
+      </select></div>
+    <div class="ie-row"><label for="ie-q">解像度</label>
+      <select id="ie-q">
+        <option value="std">標準（長辺 約2400px）</option>
+        <option value="high">高（長辺 約4800px）</option>
+        <option value="max">最高（長辺 約9000px）</option>
+      </select></div>
+    <div class="ie-row"><label for="ie-theme">配色</label>
+      <select id="ie-theme">
+        <option value="light">ライト（白背景・カラー）</option>
+        <option value="mono">白黒印刷用</option>
+        <option value="current">いまの表示のまま</option>
+      </select></div>
+    <div class="ie-info" id="ie-info"></div>
+    <div class="modal-btns">
+      <button class="modal-btn" id="ie-cancel">キャンセル</button>
+      <button class="modal-btn primary" id="ie-ok">PNGを保存</button>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
  
 <script src="./items.js"></script>
@@ -757,11 +823,13 @@ function resizeCanvas(){
    DRAW
    ═══════════════════════════════════════════════════════════════ */
 function draw(){
-  const W = canvas.width, H = canvas.height;
-  ctx.setTransform(1,0,0,1,0,0);
+  /* 画像書き出し中(window._opExp)は、指定の範囲だけを pr 倍の細かさで描く。通常時は従来どおり */
+  const EX = window._opExp || null;
+  const W = EX ? EX.W : canvas.width, H = EX ? EX.H : canvas.height;
+  if(EX) ctx.setTransform(EX.pr,0,0,EX.pr,-EX.ox*EX.pr,-EX.oy*EX.pr); else ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0, 0, W, H);
   if(typeof window._opFixLayerIds === 'function') window._opFixLayerIds();
-  const isLight = document.body.classList.contains('light-mode');
+  const isLight = document.body.classList.contains('light-mode') || viewMono;
   const org = orgPx();
   const RW = mToPx(roomW), RH = mToPx(roomH);
 
@@ -814,7 +882,7 @@ function draw(){
   for(const ln of lines){ if(vis(ln.layerId,5)) drawLine(ln, selectedLineIds.has(ln.id)); }
 
   // 線の描きかけプレビュー
-  if(lineMode && drawingLine && hoverPt){
+  if(!opPrinting && lineMode && drawingLine && hoverPt){
     const lt = currentLineType;
     ctx.strokeStyle = lt.color;
     ctx.lineWidth = lineWidth;
@@ -879,7 +947,7 @@ function drawObject(obj){
   const cx=px+pw/2, cy=py+ph/2;
   const rad=(obj.rot||0)*Math.PI/180;
   const sel = selectedIds.has(obj.id) && !opPrinting;
-  const isLight = document.body.classList.contains('light-mode');
+  const isLight = document.body.classList.contains('light-mode') || viewMono;
   const mono = viewMono;
  
   ctx.save();
@@ -2095,10 +2163,98 @@ function scheduleSave(){
    ═══════════════════════════════════════════════════════════════ */
 // Theme Toggle
 document.getElementById('btn-theme').onclick=()=>{
-  document.body.classList.toggle('light-mode');
-  draw();
-  showToast(document.body.classList.contains('light-mode') ? 'ライトモード' : 'ダークモード');
+  const order=['auto','light','dark'];
+  const next=order[(order.indexOf(window._opThemeMode())+1)%order.length];
+  window._opApplyTheme(next,true);
+  showToast({auto:'テーマ: 自動（端末の設定に合わせる）',light:'テーマ: ライト',dark:'テーマ: ダーク'}[next]);
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   画像保存（高解像度PNG）
+   画面をスクリーンショットするのではなく、同じ描画処理を指定の細かさで描き直す。
+   ═══════════════════════════════════════════════════════════════ */
+const IE_KEY = 'op_imgexp_v1';
+const IE_TARGET = { std: 2400, high: 4800, max: 9000 };   // 長辺のpx（上限は端末に合わせて自動で下げる）
+const IE_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+const IE_MAX_PIXELS = IE_IOS ? 16e6 : 50e6, IE_MAX_SIDE = 16000;
+
+function ieRegion(area, S){
+  const vis = lid => (typeof isLayerVisible==='function') ? isLayerVisible(lid) : true;
+  let b;
+  if(area==='room'){ b={x0:-0.3,y0:-0.3,x1:roomW+0.3,y1:roomH+0.3}; }
+  else if(area==='work'){ b={x0:-workMargin,y0:-workMargin,x1:roomW+workMargin,y1:roomH+workMargin}; }
+  else {
+    const list=[{x0:0,y0:0,x1:roomW,y1:roomH}];
+    for(const o of objects){ if(vis(o.layerId||1)) list.push(objBounds(o)); }
+    for(const l of lines){ if(vis(l.layerId||5)) list.push({x0:Math.min(l.x1,l.x2),y0:Math.min(l.y1,l.y2),x1:Math.max(l.x1,l.x2),y1:Math.max(l.y1,l.y2)}); }
+    b=clampToWork(unionBounds(list));
+    b={x0:Math.max(-workMargin,b.x0-0.4),y0:Math.max(-workMargin,b.y0-0.4),x1:Math.min(roomW+workMargin,b.x1+0.4),y1:Math.min(roomH+workMargin,b.y1+0.4)};
+  }
+  const org=workMargin*S, fullW=Math.round((roomW+2*workMargin)*S), fullH=Math.round((roomH+2*workMargin)*S);
+  const ox=Math.max(0,Math.floor(org+b.x0*S)), oy=Math.max(0,Math.floor(org+b.y0*S));
+  const cw=Math.max(8,Math.min(fullW,Math.ceil(org+b.x1*S))-ox), ch=Math.max(8,Math.min(fullH,Math.ceil(org+b.y1*S))-oy);
+  return {ox,oy,cw,ch,fullW,fullH};
+}
+function iePlan(area, q){
+  const S=Math.max(scale,BASE_SCALE), r=ieRegion(area,S);
+  let pr=Math.max(1, IE_TARGET[q]/Math.max(r.cw,r.ch));
+  pr=Math.min(pr, IE_MAX_SIDE/Math.max(r.cw,r.ch), Math.sqrt(IE_MAX_PIXELS/(r.cw*r.ch)));
+  return {S, r, pr, outW:Math.round(r.cw*pr), outH:Math.round(r.ch*pr)};
+}
+function ieUpdateInfo(){
+  const p=iePlan(document.getElementById('ie-area').value, document.getElementById('ie-q').value);
+  const want=IE_TARGET[document.getElementById('ie-q').value];
+  const capped=Math.max(p.outW,p.outH) < want*0.98;
+  document.getElementById('ie-info').textContent='出力サイズ: '+p.outW+' × '+p.outH+' px'+(capped?'（端末の上限のため、これ以上は大きくできません）':'');
+}
+function ieSave(){
+  const o={area:document.getElementById('ie-area').value,q:document.getElementById('ie-q').value,theme:document.getElementById('ie-theme').value};
+  try{ localStorage.setItem(IE_KEY,JSON.stringify(o)); }catch(e){}
+  return o;
+}
+function opExportImage(o){
+  const p=iePlan(o.area,o.q), r=p.r;
+  const bodyLight=document.body.classList.contains('light-mode');
+  const keep={scale:scale, mono:viewMono, printing:opPrinting, sel:[...selectedIds], lsel:[...selectedLineIds]};
+  const sc=scroller(), sl=sc.scrollLeft, st=sc.scrollTop;
+  let ok=false;
+  try{
+    scale=p.S; opPrinting=true;
+    selectedIds.clear(); selectedLineIds.clear();
+    if(o.theme==='light'){ viewMono=false; document.body.classList.add('light-mode'); }
+    else if(o.theme==='mono'){ viewMono=true; document.body.classList.add('light-mode'); }
+    canvas.width=Math.round(r.cw*p.pr); canvas.height=Math.round(r.ch*p.pr);
+    window._opExp={pr:p.pr, ox:r.ox, oy:r.oy, W:r.fullW, H:r.fullH};
+    draw();
+    const d=new Date(), z=n=>(n<10?'0':'')+n;
+    const name='office-plan-'+d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'-'+z(d.getHours())+z(d.getMinutes())+'.png';
+    canvas.toBlob(blob=>{        // toBlob は呼んだ時点の絵を使うので、すぐ下で画面を元に戻してよい
+      if(!blob){ showError('画像を作れませんでした。解像度を下げて、もう一度お試しください。'); return; }
+      const u=URL.createObjectURL(blob), a=document.createElement('a');
+      a.href=u; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(u),3000);
+      showToast('🖼 保存しました（'+p.outW+'×'+p.outH+' px）');
+    },'image/png');
+    ok=true;
+  }catch(e){
+    showError('画像の保存に失敗しました: '+e.message);
+  }finally{
+    window._opExp=null; scale=keep.scale; viewMono=keep.mono; opPrinting=keep.printing;
+    document.body.classList.toggle('light-mode',bodyLight);
+    keep.sel.forEach(v=>selectedIds.add(v)); keep.lsel.forEach(v=>selectedLineIds.add(v));
+    resizeCanvas();
+    sc.scrollLeft=sl; sc.scrollTop=st;
+  }
+  return ok;
+}
+document.getElementById('btn-imgexp').onclick=()=>{
+  try{ const s=JSON.parse(localStorage.getItem(IE_KEY)||'null');
+    if(s){ if(s.area) document.getElementById('ie-area').value=s.area; if(s.q) document.getElementById('ie-q').value=s.q; if(s.theme) document.getElementById('ie-theme').value=s.theme; } }catch(e){}
+  ieUpdateInfo(); showModal('modal-imgexp');
+};
+['ie-area','ie-q','ie-theme'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{ ieUpdateInfo(); ieSave(); }));
+document.getElementById('ie-cancel').onclick=()=>hideModal('modal-imgexp');
+document.getElementById('ie-ok').onclick=()=>{ const o=ieSave(); hideModal('modal-imgexp'); setTimeout(()=>opExportImage(o),30); };
 
 // Print
 const _bPrint=document.getElementById('btn-print'); if(_bPrint) _bPrint.onclick=()=>{
@@ -2955,7 +3111,7 @@ function _drawDrumReel(obj){
 
 function _drawDaisha(obj){
   const {pw,ph}=_ctxForObj(obj);
-  const isLight=document.body.classList.contains('light-mode');
+  const isLight=document.body.classList.contains('light-mode')||viewMono;
   const lineC=isLight?'rgba(0,0,0,0.4)':'rgba(255,255,255,0.4)';
   // platform border lines
   ctx.strokeStyle=lineC; ctx.lineWidth=1.5;
@@ -2971,7 +3127,7 @@ function _drawDaisha(obj){
 
 function _drawKyatatsu(obj){
   const {pw,ph}=_ctxForObj(obj);
-  const isLight=document.body.classList.contains('light-mode');
+  const isLight=document.body.classList.contains('light-mode')||viewMono;
   const lineC=isLight?'rgba(0,0,0,0.5)':'rgba(255,255,255,0.5)';
   ctx.strokeStyle=lineC; ctx.lineWidth=1.5;
   // A-frame shape
@@ -3010,7 +3166,7 @@ function _drawCone(obj){
 
 function _drawPallet(obj){
   const {pw,ph}=_ctxForObj(obj);
-  const isLight=document.body.classList.contains('light-mode');
+  const isLight=document.body.classList.contains('light-mode')||viewMono;
   const lineC=isLight?'rgba(100,60,20,0.5)':'rgba(200,160,80,0.4)';
   ctx.strokeStyle=lineC; ctx.lineWidth=1;
   // grid lines (boards)
@@ -4459,8 +4615,8 @@ window.get3DRefs = function(){
 (function(){
 'use strict';
 
-const APP_VERSION   = 'v1.10.0';
-const APP_UPDATED   = '2026-10-28';
+const APP_VERSION   = 'v1.11.0';
+const APP_UPDATED   = '2026-11-10';
 window._opAppInfo = {version:APP_VERSION, updated:APP_UPDATED};
 const SLOTS_KEY     = 'op_slots_v1';
 const SLOT_NAMES_KEY= 'op_slot_names_v1';
@@ -4818,6 +4974,7 @@ document.getElementById('btn-theme').onclick = function(){
   if(_origTheme) _origTheme.call(this);
   apply3DTheme();
 };
+window._opApply3DTheme = apply3DTheme;   // 端末のライト/ダーク切替に追従するときに使う
 
 // 3D初期化後に3Dブリッジを設定するためのフック
 // patch5のinitThreeEngineが完了後にwindow._3dを設定
