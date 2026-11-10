@@ -117,7 +117,7 @@ overlay.innerHTML = `
   <div id="help-header">
     <span style="font-size:18px;">📖</span>
     <div id="help-title">Office Planner — 操作ガイド</div>
-    <span id="help-version">v1.11.1</span>
+    <span id="help-version">v1.12.0</span>
     <button id="help-recovery" class="hbtn" title="診断情報のコピー・保存データの退避・復旧操作">🩺 診断・復旧</button>
     <button id="help-close">✕ 閉じる</button>
   </div>
@@ -190,7 +190,7 @@ overlay.innerHTML = `
       <div class="h-icon-row"><span class="icon">📥</span><b>読込</b> — JSONファイルを選ぶか、内容を貼り付けて読み込みます。</div>
       <div class="h-icon-row"><span class="icon">📤</span><b>保存</b> — 現在のレイアウトをJSONファイルとしてダウンロードします。</div>
       <div class="h-icon-row"><span class="icon">🖼</span><b>画像保存</b> — 2Dの図面を、高解像度のPNG画像として保存します（範囲・解像度・配色を選べます。詳しくは「保存・読込」の項）。</div>
-      <div class="h-icon-row"><span class="icon">📊</span><b>物品リスト</b> — 置いてある物を一覧にしたExcelファイル（.xlsx）を作ります。</div>
+      <div class="h-icon-row"><span class="icon">📊</span><b>物品リスト</b> — 置いてある物を一覧にしたExcelファイル（.xlsx）を作ります。ここから、ExcelでIDやメモを書き込んで図面に取り込むこともできます。</div>
       <div class="h-icon-row"><span class="icon">📁</span><b>スロット</b> — 最大10件のレイアウトに名前を付けて保存・切替します。</div>
       <div class="h-icon-row"><span class="icon">📏</span><b>ルーラー</b> — 2点間の距離を測ります。</div>
       <div class="h-icon-row"><span class="icon">🌓</span><b>テーマ</b> — 押すたびに「🌓 自動」→「☀ ライト」→「🌙 ダーク」と切り替わります。<b>自動</b>は端末（OS・ブラウザ）のライト／ダーク設定に合わせ、端末側で切り替えると、開いたまま追従します。選んだ設定は記憶され、3D表示にも反映されます。</div>
@@ -403,12 +403,32 @@ overlay.innerHTML = `
         <tr><td>チェック</td><td>セルを選んで ☐ → ☑ に切り替えられます（☑ にした行は緑色になります）</td></tr>
         <tr><td>区分</td><td>家具／備品／OA用品 と、その中の分類（例：家具 / デスク）</td></tr>
         <tr><td>物品</td><td>物の名前。右パネルで名前を変えた物は、別の行になります</td></tr>
-        <tr><td>数量</td><td>同じ名前・同じサイズの個数。一番下に合計が出ます（絞り込み中は、表示している行だけの合計になります）</td></tr>
+        <tr><td>物品ID</td><td>図面で入力した管理シールの番号（例: KA010111）</td></tr>
+        <tr><td>細目・メモ</td><td>図面で入力した細目・メモ（「壊れやすい」など）</td></tr>
+        <tr><td>数量</td><td>同じ名前・同じサイズ・同じ物品ID・同じ細目の個数。一番下に合計が出ます（絞り込み中は、表示している行だけの合計になります）</td></tr>
         <tr><td>サイズ(m) 幅×奥行</td><td>置いた物の大きさ（メートル）。回転しても変わりません</td></tr>
-        <tr><td>コメント</td><td>自由に記入できます。部屋の外にある物には、あらかじめ「部屋の外」と入ります</td></tr>
+        <tr><td>コメント</td><td>Excelの中で自由に記入できます（棚卸しの記録など）。部屋の外にある物には、あらかじめ「部屋の外」と入ります。図面には取り込まれません</td></tr>
+        <tr><td>図面No.</td><td>図面の中で、その物を見分けるための番号です。ExcelからID・メモを取り込むときの目印なので、<b>変えたり消したりしないでください</b></td></tr>
       </table>
       <p class="h-p">出力前の画面で、次を選べます：同じ物を1行にまとめるか（まとめない場合は1点1行）／非表示のレイヤーの物を除くか／構造タブの物を含めるか／部屋の外の物にコメントを入れるか。画面には、出力される内容のプレビューが出ます。</p>
       <div class="h-note">壁・窓・ドアなどの構造物（構造タブの物）と配線は、標準では含まれません。ファイル名は「物品リスト_スロット名_日付.xlsx」で、ブラウザの保存先（ダウンロード）に保存されます。</div>
+      <div class="h-h2">⬆ ExcelからID・メモを取り込む</div>
+      <p class="h-p">物品IDや細目・メモを、Excelでまとめて書き込み、図面の物に取り込めます。管理シールの番号を、表で一気に入力したいときに便利です。</p>
+      <div class="h-step"><div class="h-step-num">1</div><div class="h-step-body">「📊 物品リスト」を開き、<b>「同じ物を1行にまとめる」のチェックを外して</b>出力します（1点ずつ別の行になります）。</div></div>
+      <div class="h-step"><div class="h-step-num">2</div><div class="h-step-body">Excelで、「物品ID」列と「細目・メモ」列を書き込んで保存します（<b>「図面No.」列は変えないでください</b>）。</div></div>
+      <div class="h-step"><div class="h-step-num">3</div><div class="h-step-body">もう一度「📊 物品リスト」を開き、左下の「⬆ ExcelからID・メモを取り込む」でそのファイルを選びます。</div></div>
+      <div class="h-step"><div class="h-step-num">4</div><div class="h-step-body">確認画面で、<b>変更前→変更後の一覧</b>を見て、「図面に取り込む」を押します。取り込んだあとも、<span class="h-badge">Ctrl＋Z</span> で元に戻せます。</div></div>
+      <table class="h-tbl">
+        <tr><th>場面</th><th>動き</th></tr>
+        <tr><td>空欄のセル</td><td>標準では変更しません（図面側の値が残ります）。確認画面のチェックをONにすると、空欄で図面側も消します</td></tr>
+        <tr><td>物品IDの表記</td><td>全角は半角に、小文字は大文字にそろえて取り込みます（例: ＫＡ010111 → KA010111）。40文字まで</td></tr>
+        <tr><td>同じIDが重複するとき</td><td>確認画面に警告が出ます（取り込みはできます）。あとで図面側で直せます</td></tr>
+        <tr><td>数量が2以上の行</td><td>1つの行に複数の物があるので、物品IDは付けられません（細目・メモは、その行のすべての物に付きます）</td></tr>
+        <tr><td>図面に無い「図面No.」の行</td><td>飛ばします（別の図面のファイルかもしれません）</td></tr>
+        <tr><td>物品名が図面と違う行</td><td>別の物かもしれないので、標準では飛ばします。確認画面のチェックで、取り込むこともできます</td></tr>
+        <tr><td>CSVファイル</td><td>ExcelでCSVにして保存したファイル（文字コードは自動判別）も取り込めます。1行目付近に「物品ID」「細目・メモ」「図面No.」の見出しが必要です</td></tr>
+      </table>
+      <div class="h-note">取り込めるのは、このアプリの「📊 物品リスト」で出力した形式のファイルです。ファイルをスマホなどの古いブラウザで開く場合、圧縮された.xlsxを読めないことがあります。そのときは、Excelで「CSV UTF-8」形式にして保存し直してください。</div>
       <div class="h-h2">🖼 画像保存（高解像度PNG）</div>
       <p class="h-p">ヘッダーの「🖼 画像保存」で、2Dの図面をPNG画像として保存できます。画面のスクリーンショットではなく、図面を指定の細かさで描き直すため、拡大しても粗くなりません。選択の枠・ルーラー・シミュレーションの人物は写りません。ラベルやグリッドの表示は、いまの画面の設定に従います。</p>
       <table class="h-tbl">
