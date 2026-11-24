@@ -4129,8 +4129,37 @@ function mulberry32_3(seed){ return function(){ seed|=0; seed=seed+0x6D2B79F5|0;
 function weightedPick3(rng,list){ const tot=list.reduce((s,x)=>s+x.w,0); let r=rng()*tot; for(const i of list){if((r-=i.w)<=0)return i;} return list[list.length-1]; }
 function buildPath3(a,b){ if(Math.abs(a.x-b.x)<.01&&Math.abs(a.z-b.z)<.01)return[a,b]; return[a,{x:a.x,z:t3CorridorZ},{x:b.x,z:t3CorridorZ},b]; }
 function pathLen3(p){ let d=0; for(let i=1;i<p.length;i++)d+=Math.hypot(p[i].x-p[i-1].x,p[i].z-p[i-1].z); return d; }
-function ptOnPath3(path,frac){ const tot=pathLen3(path); if(tot<1e-6)return path[0]; let tgt=frac*tot,acc=0; for(let i=1;i<path.length;i++){const sl=Math.hypot(path[i].x-path[i-1].x,path[i].z-path[i-1].z); if(acc+sl>=tgt||i===path.length-1){const t=sl<1e-6?0:(tgt-acc)/sl; return{x:path[i-1].x+(path[i].x-path[i-1].x)*t,z:path[i-1].z+(path[i].z-path[i-1].z)*t};} acc+=sl;} return path[path.length-1]; }
+
+function ptOnPath3(path,frac){
+  const tot=pathLen3(path);
+  if(tot<1e-6) return{x:path[0].x,z:path[0].z,angle:null};
+  let tgt=frac*tot,acc=0;
+  for(let i=1;i<path.length;i++){
+    const dx=path[i].x-path[i-1].x, dz=path[i].z-path[i-1].z;
+    const sl=Math.hypot(dx,dz);
+    if(acc+sl>=tgt||i===path.length-1){
+      const t=sl<1e-6?0:(tgt-acc)/sl;
+      return{x:path[i-1].x+dx*t,z:path[i-1].z+dz*t,angle:sl>1e-4?Math.atan2(dx,dz):null};
+    }
+    acc+=sl;
+  }
+  const n=path.length-1;
+  return{x:path[n].x,z:path[n].z,angle:Math.atan2(path[n].x-path[n-1].x,path[n].z-path[n-1].z)};
+}
 function buildSchedule3(person,seatPos,rng){ const meta=TACTICS3[person.role]; const segs=[]; let t=0,pos=seatPos; const ls=190+(person.idx%9)*13+rng()*12, ld=40+rng()*15; function pw(to){if(t>=540)return;const p=buildPath3(pos,to);const dur=Math.max(0.4,pathLen3(p)/WALK_SPEED3);const t1=Math.min(540,t+dur);segs.push({type:'walk',path:p,t0:t,t1});t=t1;pos=to;} function ps(state,at,dur){if(t>=540||dur<=0)return;const t1=Math.min(540,t+dur);segs.push({type:'stat',state,pos:at,t0:t,t1});t=t1;pos=at;} while(t<540){let dd=meta.deskMin+rng()*(meta.deskMax-meta.deskMin); if(t<ls&&t+dd>ls)dd=ls-t; if(dd>0.3){if(Math.abs(pos.x-seatPos.x)>.01||Math.abs(pos.z-seatPos.z)>.01)pw(seatPos);ps('DESK',seatPos,dd);} if(t>=540)break; if(Math.abs(t-ls)<.8&&ls<540){pw(t3Target.door);ps('OUT',t3Target.door,ld);pw(seatPos);continue;} if(t>=540)break; const ch=weightedPick3(rng,meta.excursions);const dur2=ch.min+rng()*(ch.max-ch.min);const tg=t3Target[ch.name]||seatPos;pw(tg);ps(ch.name.toUpperCase(),tg,dur2);} return segs; }
+function sampleSched3(segs,min){
+  for(const s of segs){
+    if(min>=s.t0&&min<=s.t1){
+      if(s.type==='stat') return{pos:s.pos,state:s.state,moving:false,angle:null};
+      const f=s.t1>s.t0?(min-s.t0)/(s.t1-s.t0):0;
+      const pt=ptOnPath3(s.path,f);
+      return{pos:{x:pt.x,z:pt.z},state:'WALK',moving:true,angle:pt.angle};
+    }
+  }
+  const l=segs[segs.length-1];
+  return l?{pos:l.pos||l.path[l.path.length-1],state:'DESK',moving:false,angle:null}:{pos:{x:0,z:0},state:'DESK',moving:false,angle:null};
+}
+
 function sampleSched3(segs,min){ for(const s of segs){if(min>=s.t0&&min<=s.t1){if(s.type==='stat')return{pos:s.pos,state:s.state,moving:false};const f=s.t1>s.t0?(min-s.t0)/(s.t1-s.t0):0;return{pos:ptOnPath3(s.path,f),state:'WALK',moving:true};}} const l=segs[segs.length-1];return l?{pos:l.pos||l.path[l.path.length-1],state:'DESK',moving:false}:{pos:{x:0,z:0},state:'DESK',moving:false}; }
 
 // 3D KEYWORD RULES (same as standalone)
@@ -4269,13 +4298,175 @@ function buildWalls3(grp,rW,rH,doors){
   run(0,rH,gaps.east,v=>[rW,v]);
 }
 
-function makePersonMesh3(col){
+function makePersonMesh3(tagCol, idx){
   const g=new THREE.Group();
-  const body=new THREE.Mesh(new THREE.CylinderGeometry(.13,.15,.85,10),new THREE.MeshStandardMaterial({color:col,roughness:0.7}));
-  body.position.y=.425; body.castShadow=true;
-  const head=new THREE.Mesh(new THREE.SphereGeometry(.14,12,10),new THREE.MeshStandardMaterial({color:0xf0d9b8,roughness:0.8}));
-  head.position.y=.99; head.castShadow=true;
-  g.add(body,head); return g;
+  // ベージュ系の作業服（人ごとに少しだけ明暗差）
+  const suitColors=[0xcbb894,0xc2ae89,0xd3c2a0,0xb9a582,0xc7b592];
+  const hairColors=[0x1d1d22,0x2b231e,0x342a22,0x222328];
+  const suitCol=suitColors[(idx||0)%suitColors.length];
+  const pantCol=new THREE.Color(suitCol).multiplyScalar(0.90);
+  const pktCol=new THREE.Color(suitCol).multiplyScalar(0.84);
+  const hairCol=hairColors[(idx||0)%hairColors.length];
+
+  const suitMat=new THREE.MeshStandardMaterial({color:suitCol,roughness:0.82});
+  const pantMat=new THREE.MeshStandardMaterial({color:pantCol,roughness:0.86});
+  const pktMat=new THREE.MeshStandardMaterial({color:pktCol,roughness:0.82});
+  const skinMat=new THREE.MeshStandardMaterial({color:0xefc9a5,roughness:0.75});
+  const hairMat=new THREE.MeshStandardMaterial({color:hairCol,roughness:0.9});
+  const darkMat=new THREE.MeshStandardMaterial({color:0x24262b,roughness:0.85});
+  const shirtMat=new THREE.MeshStandardMaterial({color:0xedeff2,roughness:0.8});
+  const tagMat=new THREE.MeshStandardMaterial({color:tagCol,roughness:0.5});
+
+  const add=(parent,geo,mat,x,y,z)=>{
+    const m=new THREE.Mesh(geo,mat);
+    m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true;
+    parent.add(m); return m;
+  };
+
+  // 腰ピボット（ここを基準に立ち/座りの高さを切り替える）
+  const hips=new THREE.Group();
+  hips.position.y=0.85;
+  g.add(hips);
+
+  // ベルト
+  add(hips,new THREE.BoxGeometry(0.30,0.055,0.175),darkMat,0,0.025,0);
+
+  // 胴体（作業服ブルゾン）
+  const torso=new THREE.Group();
+  hips.add(torso);
+  add(torso,new THREE.BoxGeometry(0.32,0.44,0.19),suitMat,0,0.24,0);
+  add(torso,new THREE.BoxGeometry(0.015,0.40,0.01),pktMat,0,0.23,0.097);         // 前立てファスナー
+  add(torso,new THREE.BoxGeometry(0.065,0.07,0.014),pktMat,-0.085,0.32,0.098);   // 左胸ポケット
+  add(torso,new THREE.BoxGeometry(0.055,0.032,0.014),tagMat,0.085,0.33,0.098);   // 右胸名札（リストの色と対応）
+  add(torso,new THREE.BoxGeometry(0.11,0.05,0.12),shirtMat,0,0.455,0.02);        // インナー襟元
+
+  // 頭部＋髪型
+  const head=new THREE.Group();
+  head.position.set(0,0.47,0);
+  torso.add(head);
+  add(head,new THREE.CylinderGeometry(0.052,0.06,0.08,8),skinMat,0,0.035,0);
+  const face=add(head,new THREE.SphereGeometry(0.115,12,10),skinMat,0,0.155,0);
+  face.scale.set(0.92,1.06,0.95);
+  // 髪（後頭部・頭頂部＋前髪）
+  const hairTop=add(head,new THREE.SphereGeometry(0.122,12,10,0,Math.PI*2,0,Math.PI*0.62),hairMat,0,0.165,-0.012);
+  hairTop.scale.set(0.95,1.05,0.98);
+  hairTop.rotation.x=-0.35;
+  add(head,new THREE.BoxGeometry(0.17,0.055,0.06),hairMat,0,0.225,0.075);
+
+  // 両腕（肩ピボット）
+  const mkArm=(sx)=>{
+    const arm=new THREE.Group();
+    arm.position.set(sx*0.205,0.42,0);
+    add(arm,new THREE.BoxGeometry(0.085,0.39,0.085),suitMat,0,-0.18,0);
+    add(arm,new THREE.BoxGeometry(0.068,0.075,0.068),skinMat,0,-0.405,0);
+    torso.add(arm);
+    return arm;
+  };
+  const armL=mkArm(-1), armR=mkArm(1);
+
+  // 両脚（股関節＋膝ピボット）
+  const mkLeg=(sx)=>{
+    const leg=new THREE.Group();
+    leg.position.set(sx*0.082,0,0);
+    add(leg,new THREE.BoxGeometry(0.118,0.42,0.128),pantMat,0,-0.21,0);
+    const knee=new THREE.Group();
+    knee.position.set(0,-0.42,0);
+    add(knee,new THREE.BoxGeometry(0.102,0.37,0.112),pantMat,0,-0.185,0);
+    add(knee,new THREE.BoxGeometry(0.108,0.065,0.185),darkMat,0,-0.397,0.032);  // 黒作業靴
+    leg.add(knee);
+    hips.add(leg);
+    return{leg,knee};
+  };
+  const L=mkLeg(-1), R=mkLeg(1);
+
+  g.userData.rig={hips,armL,armR,legL:L.leg,kneeL:L.knee,legR:R.leg,kneeR:R.knee};
+  return g;
+}
+function hue3(i){ const hues=[.58,.58,.58,.58,.35,.4,.08,.09,.78]; const h=(hues[i%9]+Math.floor(i/9)*.13)%1; const c=new THREE.Color(); c.setHSL(h,.55,.5); return c.getHex(); }
+
+function formatClock3(min){ const tot=9*60+Math.floor(min),hh=Math.floor(tot/60),mm=tot%60; return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
+
+function updateCam3(){
+  const p=t3TopMode?.06:t3CamPhi;
+  const x=t3CamTarget.x+t3CamRadius*Math.sin(p)*Math.sin(t3CamTheta);
+  const y=t3CamTarget.y+t3CamRadius*Math.cos(p);
+  const z=t3CamTarget.z+t3CamRadius*Math.sin(p)*Math.cos(t3CamTheta);
+  t3Camera.position.set(x,y,z);
+  t3Camera.up.set(0,1,0); t3Camera.lookAt(t3CamTarget);
+}
+
+function updatePeople3(){
+  t3People.forEach((p,i)=>{
+    if(i>=t3PeopleCount){ p.mesh.visible=false; p.label.visible=false; return; }
+    const s=sampleSched3(p.schedule,t3SimMin);
+    const vis=s.state!=='OUT';
+    p.mesh.visible=vis; p.label.visible=vis&&t3AlwaysLabels;
+    if(vis){
+      const rig=p.mesh.userData.rig;
+      p.mesh.position.set(s.pos.x,0,s.pos.z);
+      if(s.moving){
+        // 歩行アニメーション
+        if(s.angle!=null){ p.lastAngle=s.angle; p.mesh.rotation.y=s.angle; }
+        const ph=t3SimMin*2.5+i*1.7;
+        const sw=Math.sin(ph)*0.62;
+        rig.hips.position.set(0,0.85+Math.abs(Math.cos(ph))*0.025,0);
+        rig.legL.rotation.x=sw;  rig.kneeL.rotation.x=Math.max(0,-sw*0.45);
+        rig.legR.rotation.x=-sw; rig.kneeR.rotation.x=Math.max(0,sw*0.45);
+        rig.armL.rotation.x=-sw*0.75; rig.armR.rotation.x=sw*0.75;
+        p.label.position.set(s.pos.x,1.92,s.pos.z);
+      } else if(s.state==='DESK'){
+        // 椅子に着座するポーズ
+        p.mesh.rotation.y=-THREE.MathUtils.degToRad(p.seatPos.rot||0);
+        rig.hips.position.set(0,0.52,-0.04);
+        rig.legL.rotation.x=-1.48; rig.kneeL.rotation.x=1.42;
+        rig.legR.rotation.x=-1.48; rig.kneeR.rotation.x=1.42;
+        rig.armL.rotation.x=-0.55; rig.armR.rotation.x=-0.55;
+        p.label.position.set(s.pos.x,1.60,s.pos.z);
+      } else {
+        // 立ち作業ポーズ（コピー機・作業台・更衣室など）
+        if(p.lastAngle!=null) p.mesh.rotation.y=p.lastAngle;
+        rig.hips.position.set(0,0.85,0);
+        rig.legL.rotation.x=0; rig.kneeL.rotation.x=0;
+        rig.legR.rotation.x=0; rig.kneeR.rotation.x=0;
+        rig.armL.rotation.x=-0.12; rig.armR.rotation.x=-0.12;
+        p.label.position.set(s.pos.x,1.92,s.pos.z);
+      }
+    }
+    const el=document.getElementById('p3-state-'+i);
+    if(el) el.textContent=s.moving?'移動中…':(STATE_LABEL3[s.state]||s.state);
+  });
+}
+
+function rebuildPeople3(){
+  disposeGrp(t3Groups.person);
+  t3People=[];
+  document.getElementById('sim3d-people-list').innerHTML='';
+  const cnt=t3Seats.length;
+  document.getElementById('sim3d-scount').textContent=cnt;
+  const psl=document.getElementById('sim3d-pslider');
+  psl.max=cnt; t3PeopleCount=Math.min(cnt,9)||0; psl.value=t3PeopleCount;
+  document.getElementById('sim3d-pcount').textContent=t3PeopleCount;
+
+  t3Seats.forEach((seat,i)=>{
+    const role=ROLE_CYCLE3[i%ROLE_CYCLE3.length];
+    const name=NAMES3[i%NAMES3.length];
+    const color=hue3(i);
+    const p={name,role,idx:i,seatPos:seat,color,lastAngle:-THREE.MathUtils.degToRad(seat.rot||0)};
+    const rng=mulberry32_3(1000+i*97);
+    p.schedule=buildSchedule3(p,seat,rng);
+    p.mesh=makePersonMesh3(color,i);
+    p.label=makeSprite3(name,'rgba(20,25,32,0.85)');
+    p.label.visible=t3AlwaysLabels;
+    t3Groups.person.add(p.mesh,p.label);
+    t3People.push(p);
+
+    const row=document.createElement('div');
+    row.className='p3d-row';
+    const hexCol='#'+color.toString(16).padStart(6,'0');
+    row.innerHTML=`<span class="p3d-dot" style="background:${hexCol}"></span><span class="p3d-name">${name}</span><span class="p3d-state" id="p3-state-${i}">-</span>`;
+    document.getElementById('sim3d-people-list').appendChild(row);
+  });
+  updatePeople3();
 }
 function hue3(i){ const hues=[.58,.58,.58,.58,.35,.4,.08,.09,.78]; const h=(hues[i%9]+Math.floor(i/9)*.13)%1; const c=new THREE.Color(); c.setHSL(h,.55,.5); return c.getHex(); }
 
@@ -4410,7 +4601,7 @@ function buildRoom3D(roomData,opts){
       const mo=opMakeModel(ment,mrule,o);
       mo.position.set(cx,spec.elevation,cz); mo.userData=o;
       (o.layerId===3?t3Groups.outlet:t3Groups.furniture).add(mo);
-      if(spec.kind==='chair') t3Seats.push({x:cx,z:cz});
+      if(spec.kind==='chair') t3Seats.push({x:cx,z:cz,rot:(o.rot||0)});
       const spr0=makeSprite3(o.label||o.defName,'rgba(20,25,32,0.85)');
       spr0.position.set(cx,spec.elevation+ment.sy+.28,cz); spr0.visible=t3AlwaysLabels;
       t3Scene.add(spr0); t3LabelSprites.push(spr0);
@@ -4419,7 +4610,7 @@ function buildRoom3D(roomData,opts){
 
     if(spec.kind==='chair'){
       mesh=new THREE.Mesh(new THREE.CylinderGeometry(o.w/2,o.w/2*.9,spec.height,18),new THREE.MeshStandardMaterial({color:o.color,roughness:.6}));
-      t3Seats.push({x:cx,z:cz});
+      t3Seats.push({x:cx,z:cz,rot:(o.rot||0)});
     } else if(spec.kind==='comment'){
       const spr=makeSprite3(o.label||o.defName,(o.color||'#888')+'dd');
       spr.position.set(cx,spec.elevation,cz);
