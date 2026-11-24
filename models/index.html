@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>昭和レトロ事務所 GLBモデル生成ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    background: #1e222a;
+    color: #e6e9ef;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #sidebar {
+    width: 380px;
+    background: #262b36;
+    border-right: 1px solid #3a4150;
+    display: flex;
+    flex-direction: column;
+  }
+  #header {
+    padding: 14px 16px;
+    border-bottom: 1px solid #3a4150;
+    background: #20252f;
+  }
+  #header h1 {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    color: #8fd3ff;
+  }
+  #header p {
+    margin: 0;
+    font-size: 11px;
+    color: #9aa4b8;
+    line-height: 1.4;
+  }
+  #bulk-actions {
+    padding: 10px 14px;
+    border-bottom: 1px solid #3a4150;
+    display: flex;
+    gap: 8px;
+  }
+  .btn {
+    border: none;
+    border-radius: 4px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-primary { background: #3b82f6; color: #fff; flex: 1; }
+  .btn-secondary { background: #4b5563; color: #fff; flex: 1; }
+  .btn-dl { background: #10b981; color: #fff; padding: 5px 10px; font-size: 11px; }
+  #model-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+  }
+  .group-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: #93c5fd;
+    margin: 10px 4px 6px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #3a4150;
+  }
+  .model-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    margin-bottom: 5px;
+    background: #2e3442;
+    border: 1px solid #3d4557;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .model-item:hover { background: #363d4e; }
+  .model-item.active {
+    border-color: #60a5fa;
+    background: #33415c;
+  }
+  .model-info { flex: 1; min-width: 0; padding-right: 8px; }
+  .model-name { font-size: 13px; font-weight: bold; color: #fff; }
+  .model-file { font-size: 11px; color: #93c5fd; font-family: monospace; margin-top: 2px; }
+  .model-dim { font-size: 10px; color: #9aa4b8; margin-top: 1px; }
+
+  #viewport-wrap {
+    flex: 1;
+    position: relative;
+    background: radial-gradient(circle at center, #2d3340 0%, #1a1d24 100%);
+  }
+  #overlay-info {
+    position: absolute;
+    top: 14px;
+    left: 16px;
+    background: rgba(20, 24, 32, 0.85);
+    border: 1px solid #3d4557;
+    border-radius: 6px;
+    padding: 10px 14px;
+    pointer-events: none;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  #overlay-controls {
+    position: absolute;
+    bottom: 14px;
+    left: 16px;
+    background: rgba(20, 24, 32, 0.85);
+    border: 1px solid #3d4557;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  #overlay-controls label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
+  #toast {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: #10b981;
+    color: #fff;
+    padding: 9px 14px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: bold;
+    display: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  #error-banner {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 999;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<div id="error-banner">
+  <div style="background:#262b36; padding:24px; border-radius:8px; max-width:480px; border:1px solid #ef4444;">
+    <h2 style="color:#f87171; margin-top:0;">Three.jsの読み込みに失敗しました</h2>
+    <p style="font-size:13px; line-height:1.6;">CDNからライブラリを取得できませんでした。インターネットに接続されているかご確認のうえ、ページを再読み込みしてください。</p>
+  </div>
+</div>
+
+<div id="sidebar">
+  <div id="header">
+    <h1>昭和レトロ事務所 GLB生成ツール</h1>
+    <p>原点：底面 Y=0・XZ中央 ／ 正面：+Z（青矢印方向）<br>テクスチャ：512px以下・微擦れ年季仕様</p>
+  </div>
+  <div id="bulk-actions">
+    <button class="btn btn-primary" onclick="downloadGroup('core')">基本セット一括DL (9個)</button>
+    <button class="btn btn-secondary" onclick="downloadGroup('all')">すべて一括DL (15個)</button>
+  </div>
+  <div id="model-list"></div>
+</div>
+
+<div id="viewport-wrap">
+  <div id="overlay-info">読み込み中...</div>
+  <div id="overlay-controls">
+    <label><input type="checkbox" id="chk-box" checked onchange="toggleHelpers()"> 実寸枠表示</label>
+    <label><input type="checkbox" id="chk-arrow" checked onchange="toggleHelpers()"> 正面(+Z)矢印</label>
+    <span style="color:#9aa4b8;">左ドラッグ:回転 / 右ドラッグ:移動 / ホイール:拡大縮小</span>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<script>
+if (typeof THREE === 'undefined' || typeof THREE.GLTFExporter === 'undefined') {
+  document.getElementById('error-banner').style.display = 'flex';
+  throw new Error('Three.js not loaded');
+}
+
+// ── テクスチャ生成ユーティリティ（すべて512px以下・昭和レトロの微擦れ表現） ──
+function makeMetalTexture(baseHex, opts = {}) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = baseHex;
+  ctx.fillRect(0, 0, size, size);
+
+  // 年季のグラデーション・色ムラ
+  const grad = ctx.createLinearGradient(0, 0, 0, size);
+  grad.addColorStop(0, 'rgba(255,255,255,0.06)');
+  grad.addColorStop(0.5, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.10)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  // 微細な塗装粒子と擦れ
+  const noiseCount = opts.noise || 900;
+  for (let i = 0; i < noiseCount; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const w = 1 + Math.random() * 2;
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.045)';
+    ctx.fillRect(x, y, w, 1);
+  }
+  // 薄い引っかき傷
+  const scratches = opts.scratches ?? 14;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < scratches; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const len = 8 + Math.random() * 28;
+    ctx.strokeStyle = Math.random() > 0.4 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.06)';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + len, y + (Math.random() - 0.5) * 4);
+    ctx.stroke();
+  }
+  // エッジの黒ずみ
+  if (opts.edgeWear !== false) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, size - 4, size - 4);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function makeWoodTexture(baseHex = '#9c7853') {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = baseHex;
+  ctx.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y += 3) {
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(60,30,10,0.06)' : 'rgba(255,220,180,0.04)';
+    ctx.fillRect(0, y, size, 1 + Math.random() * 2);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function makeDeskMatTexture() {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#255c3f';
+  ctx.fillRect(0, 0, size, size);
+  // 少し使い込まれた中央の色褪せ
+  const rg = ctx.createRadialGradient(128, 138, 10, 128, 138, 120);
+  rg.addColorStop(0, 'rgba(255,255,255,0.08)');
+  rg.addColorStop(1, 'rgba(0,0,0,0.08)');
+  ctx.fillStyle = rg;
+  ctx.fillRect(0, 0, size, size);
+  // 外周の濃い緑ライン
+  ctx.strokeStyle = '#183f2b';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(3, 3, size - 6, size - 6);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function makeCopierPanelTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#4a4e54';
+  ctx.fillRect(0, 0, 256, 128);
+  // モノクロ液晶
+  ctx.fillStyle = '#7e967a';
+  ctx.fillRect(14, 18, 96, 44);
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(14, 18, 96, 44);
+  // テンキー
+  ctx.fillStyle = '#d6d4ce';
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 3; c++) {
+      ctx.fillRect(126 + c * 22, 18 + r * 22, 17, 17);
+    }
+  }
+  // スタートボタン（レトロ緑）＆ストップ（赤）
+  ctx.fillStyle = '#27a35a';
+  ctx.fillRect(204, 62, 36, 42);
+  ctx.fillStyle = '#d9483b';
+  ctx.fillRect(204, 20, 36, 28);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function makePhoneFaceTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#e5e0d3';
+  ctx.fillRect(0, 0, 256, 256);
+  // 小型液晶
+  ctx.fillStyle = '#8b9b82';
+  ctx.fillRect(28, 22, 200, 44);
+  ctx.strokeStyle = '#999';
+  ctx.strokeRect(28, 22, 200, 44);
+  // 外線ボタン（左2列）
+  ctx.fillStyle = '#c8c3b6';
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 2; c++) {
+      ctx.fillRect(24 + c * 36, 90 + r * 32, 28, 20);
+    }
+  }
+  // ダイヤルテンキー（右3列）
+  ctx.fillStyle = '#f4f1ea';
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 3; c++) {
+      ctx.fillRect(116 + c * 38, 90 + r * 32, 30, 22);
+      ctx.strokeStyle = '#aaa';
+      ctx.strokeRect(116 + c * 38, 90 + r * 32, 30, 22);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function makeWhiteboardTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f2f3ee';
+  ctx.fillRect(0, 0, 512, 256);
+  // うっすらした消し跡
+  ctx.fillStyle = 'rgba(100,110,120,0.05)';
+  ctx.fillRect(40, 50, 180, 90);
+  ctx.fillRect(280, 70, 160, 80);
+  // 行動予定表っぽい罫線
+  ctx.strokeStyle = '#6b7c93';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(16, 16, 480, 224);
+  ctx.lineWidth = 1;
+  for (let y = 48; y < 240; y += 24) {
+    ctx.beginPath(); ctx.moveTo(16, y); ctx.lineTo(496, y); ctx.stroke();
+  }
+  for (let x = 96; x < 496; x += 80) {
+    ctx.beginPath(); ctx.moveTo(x, 16); ctx.lineTo(x, 240); ctx.stroke();
+  }
+  // 少し赤と黒の書き込み風ライン
+  ctx.strokeStyle = 'rgba(30,30,35,0.45)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(28, 60); ctx.lineTo(82, 60); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(110, 84); ctx.lineTo(165, 84); ctx.stroke();
+  ctx.strokeStyle = 'rgba(190,40,40,0.45)';
+  ctx.beginPath(); ctx.moveTo(28, 108); ctx.lineTo(80, 108); ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function makeKeyboardTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1f2226';
+  ctx.fillRect(0, 0, 256, 128);
+  ctx.fillStyle = '#333840';
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 13; c++) {
+      ctx.fillRect(12 + c * 18, 12 + r * 14, 15, 11);
+    }
+  }
+  // タッチパッド
+  ctx.fillStyle = '#2a2e35';
+  ctx.fillRect(92, 86, 72, 34);
+  ctx.strokeStyle = '#444';
+  ctx.strokeRect(92, 86, 72, 34);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+// ヘルパー：底面中心基準ではなく、中心座標指定でBoxを追加しやすくする
+function addBox(group, w, h, d, x, yBottom, z, mat, rx = 0, ry = 0, rz = 0) {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, yBottom + h / 2, z);
+  mesh.rotation.set(rx, ry, rz);
+  group.add(mesh);
+  return mesh;
+}
+
+// ── 15種類のモデルビルダー定義 ──
+const MODELS = [
+  // === 基本セット ===
+  {
+    id: 'desk_steel',
+    group: 'core',
+    name: '事務デスク（鼠色・緑マット無し単体）',
+    file: 'desk_steel.glb',
+    dim: [1.20, 0.72, 0.60],
+    build() {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#7d848a'), roughness: 0.65, metalness: 0.35 });
+      const topMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#a3a9ad', { scratches: 8 }), roughness: 0.55, metalness: 0.15 });
+      const edgeMat = new THREE.MeshStandardMaterial({ color: 0x3b3f44, roughness: 0.85 });
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0x2a2d30, roughness: 0.4, metalness: 0.6 });
+
+      // 天板（1.2 x 0.032 x 0.6）
+      addBox(g, 1.20, 0.032, 0.60, 0, 0.688, 0, topMat);
+      addBox(g, 1.204, 0.026, 0.01, 0, 0.690, 0.30, edgeMat); // 手前ゴム縁
+
+      // 右側袖机ボックス（幅0.38, 高さ0.668, 奥行0.56）
+      addBox(g, 0.38, 0.64, 0.56, 0.40, 0.048, 0, bodyMat);
+      // 引き出し前板3段（+Z方向へ少し出す）
+      addBox(g, 0.35, 0.14, 0.015, 0.40, 0.52, 0.282, bodyMat);
+      addBox(g, 0.35, 0.18, 0.015, 0.40, 0.32, 0.282, bodyMat);
+      addBox(g, 0.35, 0.24, 0.015, 0.40, 0.06, 0.282, bodyMat);
+      // 取っ手
+      addBox(g, 0.12, 0.018, 0.016, 0.40, 0.58, 0.292, handleMat);
+      addBox(g, 0.12, 0.018, 0.016, 0.40, 0.40, 0.292, handleMat);
+      addBox(g, 0.12, 0.018, 0.016, 0.40, 0.18, 0.292, handleMat);
+      // 右脚ベース
+      addBox(g, 0.04, 0.048, 0.54, 0.24, 0, 0, edgeMat);
+      addBox(g, 0.04, 0.048, 0.54, 0.56, 0, 0, edgeMat);
+
+      // センター引き出し（左側下）
+      addBox(g, 0.72, 0.06, 0.48, -0.20, 0.625, 0.02, bodyMat);
+      addBox(g, 0.14, 0.016, 0.016, -0.20, 0.645, 0.265, handleMat);
+
+      // 左側スチール脚（コの字）
+      addBox(g, 0.04, 0.688, 0.04, -0.56, 0, 0.25, bodyMat);
+      addBox(g, 0.04, 0.688, 0.04, -0.56, 0, -0.25, bodyMat);
+      addBox(g, 0.04, 0.04, 0.54, -0.56, 0, 0, edgeMat);
+
+      // 背面幕板（-Z側）
+      addBox(g, 0.78, 0.38, 0.02, -0.18, 0.28, -0.26, bodyMat);
+      return g;
+    }
+  },
+  {
+    id: 'deskmat_green',
+    group: 'core',
+    name: '緑のデスクマット（別置き用）',
+    file: 'deskmat_green.glb',
+    dim: [0.80, 0.008, 0.40],
+    build() {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({ map: makeDeskMatTexture(), roughness: 0.45, metalness: 0.05 });
+      addBox(g, 0.80, 0.008, 0.40, 0, 0, 0, mat);
+      return g;
+    }
+  },
+  {
+    id: 'laptop_black',
+    group: 'core',
+    name: '黒いノートパソコン（別置き用）',
+    file: 'laptop_black.glb',
+    dim: [0.38, 0.24, 0.26],
+    build() {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.55, metalness: 0.2 });
+      const kbMat = new THREE.MeshStandardMaterial({ map: makeKeyboardTexture(), roughness: 0.7 });
+      const scrMat = new THREE.MeshStandardMaterial({ color: 0x1e354d, emissive: 0x0b1624, roughness: 0.25 });
+
+      // 本体ベース
+      addBox(g, 0.38, 0.018, 0.25, 0, 0, 0.005, bodyMat);
+      addBox(g, 0.36, 0.002, 0.22, 0, 0.018, 0.01, kbMat);
+
+      // 液晶蓋（少し後ろに開いた角度）
+      const lid = new THREE.Group();
+      lid.position.set(0, 0.018, -0.115);
+      lid.rotation.x = -0.32;
+      addBox(lid, 0.38, 0.23, 0.01, 0, 0, 0, bodyMat);
+      addBox(lid, 0.35, 0.20, 0.003, 0, 0.015, 0.006, scrMat);
+      g.add(lid);
+      return g;
+    }
+  },
+  {
+    id: 'chair_office',
+    group: 'core',
+    name: 'オフィスチェア（グレー昭和風）',
+    file: 'chair_office.glb',
+    dim: [0.60, 0.90, 0.60],
+    build() {
+      const g = new THREE.Group();
+      const fabricMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#7c8187', { noise: 1500, scratches: 0, edgeWear: false }), roughness: 0.9, metalness: 0.0 });
+      const plasticMat = new THREE.MeshStandardMaterial({ color: 0x2b2e33, roughness: 0.7, metalness: 0.1 });
+      const metalMat = new THREE.MeshStandardMaterial({ color: 0x62676d, roughness: 0.4, metalness: 0.7 });
+
+      // 5本脚＋キャスター
+      for (let i = 0; i < 5; i++) {
+        const ang = (i / 5) * Math.PI * 2;
+        const arm = new THREE.Group();
+        arm.rotation.y = ang;
+        addBox(arm, 0.036, 0.03, 0.26, 0, 0.055, 0.13, plasticMat);
+        // キャスター輪
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.03, 10), plasticMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(0, 0.025, 0.245);
+        arm.add(wheel);
+        g.add(arm);
+      }
+      // ガスシリンダー支柱
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.032, 0.36, 12), plasticMat);
+      cyl.position.set(0, 0.24, 0);
+      g.add(cyl);
+
+      // 座面（少し厚みと丸みのある昭和クッション）
+      addBox(g, 0.45, 0.065, 0.43, 0, 0.41, 0.02, fabricMat);
+      addBox(g, 0.43, 0.02, 0.41, 0, 0.39, 0.02, plasticMat);
+
+      // 背面L字フレーム
+      addBox(g, 0.05, 0.03, 0.18, 0, 0.39, -0.18, metalMat);
+      addBox(g, 0.05, 0.32, 0.03, 0, 0.39, -0.255, plasticMat);
+
+      // 背もたれクッション（中央＋左右を少し角度付け）
+      addBox(g, 0.24, 0.34, 0.055, 0, 0.56, -0.22, fabricMat);
+      addBox(g, 0.11, 0.33, 0.05, -0.16, 0.565, -0.20, fabricMat, 0, 0.22, 0);
+      addBox(g, 0.11, 0.33, 0.05, 0.16, 0.565, -0.20, fabricMat, 0, -0.22, 0);
+      return g;
+    }
+  },
+  {
+    id: 'cabinet_steel',
+    group: 'core',
+    name: 'キャビネット（薄グレー書庫 1.8m）',
+    file: 'cabinet_steel.glb',
+    dim: [0.90, 1.80, 0.45],
+    build() {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#a8aeb3'), roughness: 0.6, metalness: 0.35 });
+      const innerMat = new THREE.MeshStandardMaterial({ color: 0x73797f, roughness: 0.8 });
+      const baseMat = new THREE.MeshStandardMaterial({ color: 0x3b3f44, roughness: 0.7 });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x99bbcc, transparent: true, opacity: 0.42, roughness: 0.15, metalness: 0.2 });
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0x33363a, roughness: 0.4, metalness: 0.6 });
+
+      // 下部台輪（高さ0.06）
+      addBox(g, 0.89, 0.06, 0.42, 0, 0, -0.01, baseMat);
+
+      // 下段スチール引き違い戸（y=0.06〜0.92）
+      addBox(g, 0.90, 0.86, 0.45, 0, 0.06, 0, bodyMat);
+      // 引き違いの段差扉
+      addBox(g, 0.44, 0.80, 0.015, -0.21, 0.09, 0.228, bodyMat);
+      addBox(g, 0.44, 0.80, 0.015, 0.21, 0.09, 0.236, bodyMat);
+      addBox(g, 0.02, 0.10, 0.01, -0.39, 0.44, 0.236, handleMat);
+      addBox(g, 0.02, 0.10, 0.01, 0.39, 0.44, 0.244, handleMat);
+
+      // 上段枠（y=0.92〜1.80：中が見えるガラス引き戸用外枠）
+      addBox(g, 0.90, 0.03, 0.45, 0, 0.92, 0, bodyMat); // 中天板
+      addBox(g, 0.90, 0.035, 0.45, 0, 1.765, 0, bodyMat); // 最上天板
+      addBox(g, 0.03, 0.81, 0.45, -0.435, 0.95, 0, bodyMat); // 左側板
+      addBox(g, 0.03, 0.81, 0.45, 0.435, 0.95, 0, bodyMat);  // 右側板
+      addBox(g, 0.84, 0.81, 0.02, 0, 0.95, -0.215, innerMat); // 背板
+      // 棚板2枚
+      addBox(g, 0.84, 0.02, 0.38, 0, 1.21, -0.02, innerMat);
+      addBox(g, 0.84, 0.02, 0.38, 0, 1.48, -0.02, innerMat);
+
+      // 上段ガラス引き違い扉（枠＋半透明ガラス）
+      const addGlassDoor = (cx, cz) => {
+        addBox(g, 0.43, 0.025, 0.015, cx, 0.95, cz, bodyMat);
+        addBox(g, 0.43, 0.025, 0.015, cx, 1.74, cz, bodyMat);
+        addBox(g, 0.025, 0.765, 0.015, cx - 0.202, 0.975, cz, bodyMat);
+        addBox(g, 0.025, 0.765, 0.015, cx + 0.202, 0.975, cz, bodyMat);
+        addBox(g, 0.38, 0.765, 0.006, cx, 0.975, cz, glassMat);
+      };
+      addGlassDoor(-0.21, 0.205);
+      addGlassDoor(0.21, 0.220);
+      return g;
+    }
+  },
+  {
+    id: 'locker_small',
+    group: 'core',
+    name: 'ロッカー 甲（個人用・アイボリー 1m）',
+    file: 'locker_small.glb',
+    dim: [0.30, 1.00, 0.30],
+    build() {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#e5decb'), roughness: 0.55, metalness: 0.3 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x3a3b38, roughness: 0.7 });
+      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xc2c6ca, roughness: 0.3, metalness: 0.8 });
+
+      // 台輪＋本体
+      addBox(g, 0.29, 0.04, 0.28, 0, 0, -0.01, darkMat);
+      addBox(g, 0.30, 0.96, 0.28, 0, 0.04, -0.01, bodyMat);
+      // 扉
+      addBox(g, 0.275, 0.92, 0.018, 0, 0.06, 0.135, bodyMat);
+      // 通気スリット（上下各3本）
+      for (let i = 0; i < 3; i++) {
+        addBox(g, 0.15, 0.01, 0.006, 0, 0.87 + i * 0.022, 0.144, darkMat);
+        addBox(g, 0.15, 0.01, 0.006, 0, 0.10 + i * 0.022, 0.144, darkMat);
+      }
+      // 名札枠＋取っ手
+      addBox(g, 0.08, 0.035, 0.006, 0, 0.78, 0.145, chromeMat);
+      addBox(g, 0.02, 0.07, 0.015, 0.10, 0.50, 0.148, chromeMat);
+      return g;
+    }
+  },
+  {
+    id: 'locker_3row_steel',
+    group: 'core',
+    name: 'ロッカー 乙（3連更衣・グレー 1.8m）',
+    file: 'locker_3row_steel.glb',
+    dim: [0.90, 1.80, 0.55],
+    build() {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#899197'), roughness: 0.6, metalness: 0.35 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x35383c, roughness: 0.75 });
+      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xb0b6bc, roughness: 0.35, metalness: 0.7 });
+
+      // 台輪＋本体
+      addBox(g, 0.89, 0.06, 0.51, 0, 0, -0.01, darkMat);
+      addBox(g, 0.90, 1.74, 0.53, 0, 0.06, -0.01, bodyMat);
+
+      // 3連扉（幅0.285ずつ）
+      [-0.295, 0, 0.295].forEach(cx => {
+        addBox(g, 0.282, 1.69, 0.018, cx, 0.085, 0.258, bodyMat);
+        // 上下スリット
+        for (let i = 0; i < 4; i++) {
+          addBox(g, 0.16, 0.01, 0.006, cx, 1.65 + i * 0.022, 0.268, darkMat);
+          addBox(g, 0.16, 0.01, 0.006, cx, 0.13 + i * 0.022, 0.268, darkMat);
+        }
+        // 名札・取っ手鍵
+        addBox(g, 0.08, 0.032, 0.006, cx, 1.54, 0.268, chromeMat);
+        addBox(g, 0.022, 0.08, 0.016, cx + 0.105, 0.92, 0.272, darkMat);
+      });
+      return g;
+    }
+  },
+  {
+    id: 'copier_desktop',
+    group: 'core',
+    name: 'コピー機（四角・給紙段付き複合機）',
+    file: 'copier_desktop.glb',
+    dim: [0.65, 1.10, 0.70],
+    build() {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#dcd8ce', { scratches: 6 }), roughness: 0.6, metalness: 0.1 });
+      const accentMat = new THREE.MeshStandardMaterial({ color: 0x5c6268, roughness: 0.7 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x2c3035, roughness: 0.8 });
+      const panelMat = new THREE.MeshStandardMaterial({ map: makeCopierPanelTexture(), roughness: 0.5 });
+
+      // キャスター脚
+      [[-0.26, 0.28], [0.26, 0.28], [-0.26, -0.28], [0.26, -0.28]].forEach(([x, z]) => {
+        addBox(g, 0.06, 0.04, 0.06, x, 0, z, darkMat);
+      });
+      // 下部本体（3段カセット）
+      addBox(g, 0.65, 0.62, 0.68, 0, 0.04, -0.01, bodyMat);
+      [0.08, 0.27, 0.46].forEach(y => {
+        addBox(g, 0.56, 0.16, 0.02, 0, y, 0.335, bodyMat);
+        addBox(g, 0.14, 0.025, 0.015, 0, y + 0.08, 0.345, accentMat);
+      });
+      // 中段（排紙凹み）
+      addBox(g, 0.65, 0.28, 0.42, 0, 0.66, -0.14, bodyMat);
+      addBox(g, 0.16, 0.28, 0.26, 0.245, 0.66, 0.20, bodyMat); // 右側柱
+      addBox(g, 0.46, 0.02, 0.26, -0.08, 0.66, 0.20, darkMat); // 排紙受け
+
+      // 上部スキャナー＆ADF蓋
+      addBox(g, 0.65, 0.10, 0.68, 0, 0.94, -0.01, bodyMat);
+      addBox(g, 0.56, 0.06, 0.58, -0.02, 1.04, -0.02, accentMat);
+      // 操作パネル（右手前に傾斜）
+      addBox(g, 0.24, 0.03, 0.13, 0.20, 0.98, 0.30, panelMat, 0.45, 0, 0);
+      return g;
+    }
+  },
+  {
+    id: 'phone_office_white',
+    group: 'core',
+    name: '内線電話（白・昭和ビジネスフォン）',
+    file: 'phone_office_white.glb',
+    dim: [0.20, 0.12, 0.20],
+    build() {
+      const g = new THREE.Group();
+      const whiteMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#eae5d8', { scratches: 4 }), roughness: 0.45 });
+      const faceMat = new THREE.MeshStandardMaterial({ map: makePhoneFaceTexture(), roughness: 0.5 });
+
+      // 傾斜した電話機本体
+      addBox(g, 0.20, 0.055, 0.20, 0, 0, 0, whiteMat);
+      addBox(g, 0.195, 0.03, 0.19, 0, 0.045, 0, whiteMat, 0.20, 0, 0);
+      // 右側ボタン面（上面）
+      addBox(g, 0.12, 0.005, 0.17, 0.035, 0.072, 0.01, faceMat, 0.20, 0, 0);
+
+      // 左側受話器（送話部・持ち手・受話部）
+      const hs = new THREE.Group();
+      hs.position.set(-0.062, 0.082, 0);
+      hs.rotation.x = 0.20;
+      addBox(hs, 0.046, 0.032, 0.052, 0, 0, 0.07, whiteMat);
+      addBox(hs, 0.046, 0.032, 0.052, 0, 0, -0.07, whiteMat);
+      addBox(hs, 0.032, 0.022, 0.11, 0, 0.014, 0, whiteMat);
+      g.add(hs);
+      return g;
+    }
+  },
+
+  // === 追加候補 ===
+  {
+    id: 'table_meeting_folding',
+    group: 'extra',
+    name: '会議テーブル（折り畳み長机）',
+    file: 'table_meeting_folding.glb',
+    dim: [1.80, 0.70, 0.90],
+    build() {
+      const g = new THREE.Group();
+      const topMat = new THREE.MeshStandardMaterial({ map: makeWoodTexture('#c8b698'), roughness: 0.55 });
+      const edgeMat = new THREE.MeshStandardMaterial({ color: 0x554433, roughness: 0.8 });
+      const pipeMat = new THREE.MeshStandardMaterial({ color: 0x3b3f44, roughness: 0.45, metalness: 0.7 });
+
+      // 天板
+      addBox(g, 1.80, 0.032, 0.90, 0, 0.668, 0, topMat);
+      addBox(g, 1.804, 0.028, 0.904, 0, 0.669, 0, edgeMat);
+      // 上の天板を少し上に出して木目を見せる
+      addBox(g, 1.79, 0.004, 0.89, 0, 0.698, 0, topMat);
+
+      // 左右の折り畳みパイプ脚
+      [-0.78, 0.78].forEach(x => {
+        addBox(g, 0.03, 0.67, 0.03, x, 0, 0.36, pipeMat);
+        addBox(g, 0.03, 0.67, 0.03, x, 0, -0.36, pipeMat);
+        addBox(g, 0.03, 0.03, 0.75, x, 0.02, 0, pipeMat); // 足元横棒
+        addBox(g, 0.025, 0.025, 0.72, x, 0.64, 0, pipeMat); // 上部桁
+      });
+      return g;
+    }
+  },
+  {
+    id: 'workbench_steel',
+    group: 'extra',
+    name: '作業台（木天板＋スチール脚）',
+    file: 'workbench_steel.glb',
+    dim: [1.80, 0.75, 0.75],
+    build() {
+      const g = new THREE.Group();
+      const woodMat = new THREE.MeshStandardMaterial({ map: makeWoodTexture('#b0895c'), roughness: 0.75 });
+      const frameMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#6b7b76'), roughness: 0.6, metalness: 0.4 });
+
+      // 厚手木天板
+      addBox(g, 1.80, 0.04, 0.75, 0, 0.71, 0, woodMat);
+      // 四隅角パイプ脚
+      [[-0.84, 0.32], [0.84, 0.32], [-0.84, -0.32], [0.84, -0.32]].forEach(([x, z]) => {
+        addBox(g, 0.05, 0.71, 0.05, x, 0, z, frameMat);
+      });
+      // 中棚
+      addBox(g, 1.68, 0.025, 0.64, 0, 0.22, 0, frameMat);
+      return g;
+    }
+  },
+  {
+    id: 'cart_flat',
+    group: 'extra',
+    name: '台車（平台・押し手付き）',
+    file: 'cart_flat.glb',
+    dim: [1.20, 0.85, 0.60],
+    build() {
+      const g = new THREE.Group();
+      const deckMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#4a7294', { scratches: 25 }), roughness: 0.65 });
+      const pipeMat = new THREE.MeshStandardMaterial({ color: 0x9aa2a8, roughness: 0.35, metalness: 0.75 });
+      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222528, roughness: 0.85 });
+
+      // 4輪キャスター
+      [[-0.48, 0.22], [0.48, 0.22], [-0.48, -0.22], [0.48, -0.22]].forEach(([x, z]) => {
+        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 14), wheelMat);
+        w.rotation.x = Math.PI / 2;
+        w.position.set(x, 0.06, z);
+        g.add(w);
+      });
+      // 荷台
+      addBox(g, 1.20, 0.05, 0.60, 0, 0.12, 0, deckMat);
+      // 押し手ハンドル（-X側短辺）
+      addBox(g, 0.032, 0.68, 0.032, -0.57, 0.17, 0.24, pipeMat);
+      addBox(g, 0.032, 0.68, 0.032, -0.57, 0.17, -0.24, pipeMat);
+      addBox(g, 0.032, 0.032, 0.512, -0.57, 0.818, 0, pipeMat);
+      addBox(g, 0.02, 0.02, 0.48, -0.57, 0.45, 0, pipeMat);
+      return g;
+    }
+  },
+  {
+    id: 'ladder_alu',
+    group: 'extra',
+    name: '脚立（アルミ脚立 2m）',
+    file: 'ladder_alu.glb',
+    dim: [0.60, 2.00, 0.40],
+    build() {
+      const g = new THREE.Group();
+      const aluMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#c4cbd1', { scratches: 18 }), roughness: 0.38, metalness: 0.8 });
+      const capMat = new THREE.MeshStandardMaterial({ color: 0x2d3035, roughness: 0.8 });
+
+      // 天板
+      addBox(g, 0.44, 0.03, 0.18, 0, 1.97, 0, aluMat);
+      // 前後A字支柱（幅0.60・奥行0.40の範囲内に収まる開き角度）
+      const tilt = 0.065;
+      [-0.24, 0.24].forEach(x => {
+        const taper = x > 0 ? -0.04 : 0.04;
+        addBox(g, 0.035, 1.98, 0.05, x + taper, 0, 0.10, aluMat, -tilt, 0, x > 0 ? 0.035 : -0.035);
+        addBox(g, 0.035, 1.98, 0.05, x + taper, 0, -0.10, aluMat, tilt, 0, x > 0 ? 0.035 : -0.035);
+      });
+      // ステップ6段
+      for (let i = 1; i <= 6; i++) {
+        const y = i * 0.28;
+        const w = 0.52 - i * 0.018;
+        const zOff = 0.15 - i * 0.012;
+        addBox(g, w, 0.025, 0.055, 0, y, zOff, aluMat);
+        addBox(g, w, 0.025, 0.055, 0, y, -zOff, aluMat);
+      }
+      // 脚先滑り止めキャップ
+      addBox(g, 0.045, 0.04, 0.06, -0.26, 0, 0.16, capMat);
+      addBox(g, 0.045, 0.04, 0.06, 0.26, 0, 0.16, capMat);
+      addBox(g, 0.045, 0.04, 0.06, -0.26, 0, -0.16, capMat);
+      addBox(g, 0.045, 0.04, 0.06, 0.26, 0, -0.16, capMat);
+      return g;
+    }
+  },
+  {
+    id: 'whiteboard_wall',
+    group: 'extra',
+    name: 'ホワイトボード（行動予定表）',
+    file: 'whiteboard_wall.glb',
+    dim: [1.80, 0.90, 0.08],
+    build() {
+      const g = new THREE.Group();
+      const boardMat = new THREE.MeshStandardMaterial({ map: makeWhiteboardTexture(), roughness: 0.35 });
+      const aluMat = new THREE.MeshStandardMaterial({ color: 0xb8bec4, roughness: 0.4, metalness: 0.7 });
+      const redMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.5 });
+      const blkMat = new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.5 });
+
+      // アルミ枠（底面 y=0、高さ0.90）
+      addBox(g, 1.80, 0.03, 0.04, 0, 0, 0, aluMat);
+      addBox(g, 1.80, 0.03, 0.04, 0, 0.87, 0, aluMat);
+      addBox(g, 0.03, 0.84, 0.04, -0.885, 0.03, 0, aluMat);
+      addBox(g, 0.03, 0.84, 0.04, 0.885, 0.03, 0, aluMat);
+      // 板面
+      addBox(g, 1.74, 0.84, 0.02, 0, 0.03, 0, boardMat);
+      // ペントレー（+Z側へ飛び出す）
+      addBox(g, 0.60, 0.015, 0.045, 0, 0.01, 0.035, aluMat);
+      addBox(g, 0.12, 0.016, 0.016, -0.12, 0.025, 0.038, blkMat);
+      addBox(g, 0.12, 0.016, 0.016, 0.04, 0.025, 0.038, redMat);
+      return g;
+    }
+  },
+  {
+    id: 'fridge_retro',
+    group: 'extra',
+    name: '冷蔵庫（レトロ2ドア・クリーム白）',
+    file: 'fridge_retro.glb',
+    dim: [0.60, 1.20, 0.65],
+    build() {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ map: makeMetalTexture('#ebe4d4', { scratches: 5 }), roughness: 0.42, metalness: 0.1 });
+      const chromeMat = new THREE.MeshStandardMaterial({ color: 0xc8cdd2, roughness: 0.25, metalness: 0.85 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x383a3c, roughness: 0.8 });
+
+      // 脚＋本体
+      addBox(g, 0.56, 0.03, 0.58, 0, 0, -0.02, darkMat);
+      addBox(g, 0.60, 1.17, 0.58, 0, 0.03, -0.02, bodyMat);
+      // 下ドア（冷凍・冷蔵仕切り）＆上ドア
+      addBox(g, 0.585, 0.72, 0.05, 0, 0.05, 0.295, bodyMat);
+      addBox(g, 0.585, 0.39, 0.05, 0, 0.80, 0.295, bodyMat);
+      // レトロ銀ハンドル
+      addBox(g, 0.022, 0.18, 0.028, 0.23, 0.56, 0.33, chromeMat);
+      addBox(g, 0.022, 0.14, 0.028, 0.23, 0.86, 0.33, chromeMat);
+      return g;
+    }
+  }
+];
+
+// ── ビューアー初期化 ──
+const wrap = document.getElementById('viewport-wrap');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, wrap.clientWidth / wrap.clientHeight, 0.05, 50);
+camera.position.set(1.6, 1.4, 2.2);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+wrap.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+// ライティング
+scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+const dirLight = new THREE.DirectionalLight(0xfffaf0, 0.9);
+dirLight.position.set(3, 5, 4);
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0xcfe4ff, 0.4);
+fillLight.position.set(-4, 2, -3);
+scene.add(fillLight);
+
+// 床グリッド
+const gridHelper = new THREE.GridHelper(4, 20, 0x5b6b82, 0x333b4a);
+scene.add(gridHelper);
+
+let currentModelGroup = null;
+let helperBox = null;
+let frontArrow = null;
+let currentDef = null;
+
+function selectModel(id) {
+  const def = MODELS.find(m => m.id === id);
+  if (!def) return;
+  currentDef = def;
+
+  document.querySelectorAll('.model-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+
+  if (currentModelGroup) scene.remove(currentModelGroup);
+  if (helperBox) scene.remove(helperBox);
+  if (frontArrow) scene.remove(frontArrow);
+
+  currentModelGroup = def.build();
+  currentModelGroup.name = def.id;
+  scene.add(currentModelGroup);
+
+  // 実寸確認枠
+  const [w, h, d] = def.dim;
+  const boxGeo = new THREE.BoxGeometry(w, h, d);
+  const edges = new THREE.EdgesGeometry(boxGeo);
+  helperBox = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.45 }));
+  helperBox.position.set(0, h / 2, 0);
+  scene.add(helperBox);
+
+  // 正面(+Z)矢印
+  frontArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0.02, d / 2 + 0.05), 0.35, 0x38bdf8, 0.1, 0.06);
+  scene.add(frontArrow);
+
+  toggleHelpers();
+
+  // カメラ距離を自動調整
+  const maxDim = Math.max(w, h, d);
+  const dist = Math.max(maxDim * 1.9, 0.6);
+  controls.target.set(0, h / 2, 0);
+  camera.position.set(dist * 0.85, h * 0.7 + dist * 0.45, dist * 1.15);
+  controls.update();
+
+  updateOverlayInfo(def, null);
+}
+
+function updateOverlayInfo(def, byteSize) {
+  const [w, h, d] = def.dim;
+  const sizeStr = byteSize != null ? ` ／ 生成サイズ: <b>${(byteSize / 1024).toFixed(1)} KB</b>` : '';
+  document.getElementById('overlay-info').innerHTML =
+    `<b>${def.name}</b><br>` +
+    `ファイル名: <span style="color:#93c5fd;font-family:monospace;">${def.file}</span><br>` +
+    `実寸 (幅×奥行×高さ): ${w.toFixed(2)}m × ${d.toFixed(2)}m × ${h.toFixed(2)}m${sizeStr}`;
+}
+
+function toggleHelpers() {
+  if (helperBox) helperBox.visible = document.getElementById('chk-box').checked;
+  if (frontArrow) frontArrow.visible = document.getElementById('chk-arrow').checked;
+}
+
+// ── GLBエクスポート処理 ──
+const exporter = new THREE.GLTFExporter();
+
+function exportGLB(def) {
+  return new Promise((resolve) => {
+    const model = def.build();
+    model.name = def.id;
+    exporter.parse(model, (result) => {
+      const blob = new Blob([result], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = def.file;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (currentDef && currentDef.id === def.id) {
+        updateOverlayInfo(def, result.byteLength);
+      }
+      resolve(result.byteLength);
+    }, { binary: true });
+  });
+}
+
+async function downloadSingle(id, ev) {
+  if (ev) ev.stopPropagation();
+  const def = MODELS.find(m => m.id === id);
+  if (!def) return;
+  selectModel(id);
+  const bytes = await exportGLB(def);
+  showToast(`保存: ${def.file} (${(bytes / 1024).toFixed(1)} KB)`);
+}
+
+async function downloadGroup(groupName) {
+  const targets = groupName === 'core' ? MODELS.filter(m => m.group === 'core') : MODELS;
+  showToast(`${targets.length}個のGLBを順番に書き出します...`);
+  for (let i = 0; i < targets.length; i++) {
+    await exportGLB(targets[i]);
+    await new Promise(r => setTimeout(r, 450));
+  }
+  showToast(`完了：${targets.length}個のGLBファイルを保存しました`);
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
+// ── UIリスト生成 ──
+function buildList() {
+  const container = document.getElementById('model-list');
+  const groups = [
+    { key: 'core', title: '■ 基本発注リスト＋分離小物（9点）' },
+    { key: 'extra', title: '■ 追加候補（6点）' }
+  ];
+  groups.forEach(grp => {
+    const t = document.createElement('div');
+    t.className = 'group-title';
+    t.textContent = grp.title;
+    container.appendChild(t);
+
+    MODELS.filter(m => m.group === grp.key).forEach(def => {
+      const [w, h, d] = def.dim;
+      const item = document.createElement('div');
+      item.className = 'model-item';
+      item.dataset.id = def.id;
+      item.onclick = () => selectModel(def.id);
+      item.innerHTML = `
+        <div class="model-info">
+          <div class="model-name">${def.name}</div>
+          <div class="model-file">${def.file}</div>
+          <div class="model-dim">${w} × ${d} × ${h} m</div>
+        </div>
+        <button class="btn btn-dl" onclick="downloadSingle('${def.id}', event)">DL</button>
+      `;
+      container.appendChild(item);
+    });
+  });
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = wrap.clientWidth / wrap.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+buildList();
+selectModel('desk_steel');
+animate();
+</script>
+</body>
+</html>
