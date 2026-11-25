@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Office Planner 自動パッチツール v3（共有URL・テンプレート読込対応）</title>
+<style>
+  body {
+    font-family: "Meiryo", "Yu Gothic", sans-serif;
+    background: #181c24; color: #e6e9ef;
+    max-width: 760px; margin: 32px auto; padding: 0 20px;
+    line-height: 1.7;
+  }
+  h1 { color: #7dd3fc; font-size: 19px; margin-bottom: 6px; }
+  .card {
+    background: #222733; border: 1px solid #3a4254;
+    border-radius: 10px; padding: 15px 18px; margin-bottom: 12px;
+  }
+  .btn {
+    background: #3b82f6; color: #fff; border: none;
+    border-radius: 6px; padding: 10px 18px; font-size: 13px;
+    font-weight: bold; cursor: pointer;
+  }
+  .btn:hover { background: #2563eb; }
+  .btn-green { background: #10b981; }
+  .btn-green:hover { background: #059669; }
+  .btn-amber { background: #d97706; }
+  .btn-amber:hover { background: #b45309; }
+  pre {
+    background: #11141a; border: 1px solid #303746; border-radius: 6px;
+    padding: 12px; font-size: 12px; white-space: pre-wrap; color: #cbd5e1;
+    min-height: 100px;
+  }
+  .note { font-size: 12px; color: #9aa4b8; }
+</style>
+</head>
+<body>
+
+<h1>🛠 Office Planner 自動パッチツール v3</h1>
+<p class="note">
+  ・<b>短縮共有URL</b>（「🔗 共有」ボタン復活＋gzip圧縮でURL約1/10化）<br>
+  ・<b>テンプレート読込</b>（<code>layouts/index.json</code> 一覧表示 ＋ <code>?layout=...</code> URL対応）<br>
+  ・スポナー専用化 / 3Dオレンジ筒非表示 / ベージュ作業服＆アニメ修正 / 給湯室・電子レンジ対応
+</p>
+
+<div class="card">
+  <h3 style="margin-top:0;">① index.html を修正して保存</h3>
+  <button class="btn" onclick="document.getElementById('in-html').click()">📁 今の index.html を選択して変換・保存</button>
+  <input type="file" id="in-html" accept=".html,.htm" style="display:none;">
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">② items.js を修正して保存（未更新なら実行）</h3>
+  <button class="btn btn-green" onclick="document.getElementById('in-items').click()">📁 今の items.js を選択して変換・保存</button>
+  <input type="file" id="in-items" accept=".js" style="display:none;">
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">③ 最新版 models.js を保存</h3>
+  <button class="btn btn-amber" onclick="downloadModelsJS()">⬇ 最新版 models.js をダウンロード</button>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">実行ログ</h3>
+  <pre id="log">操作を選んでください...</pre>
+</div>
+
+<script>
+function log(msg) { document.getElementById('log').textContent += '\n' + msg; }
+function resetLog(title) { document.getElementById('log').textContent = title; }
+function saveFile(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+const CODE_SHARE_HELPERS = `
+async function encodeShareHash(stateObj){
+  const json = JSON.stringify(stateObj);
+  if(typeof CompressionStream !== 'undefined'){
+    try{
+      const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
+      const buf = await new Response(stream).arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for(let i=0; i<bytes.length; i+=0x8000){
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000));
+      }
+      const b64url = btoa(bin).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+      return 'gz:' + b64url;
+    }catch(e){ console.warn('gzip encode fallback:', e); }
+  }
+  return btoa(encodeURIComponent(json));
+}
+
+async function decodeShareHash(str){
+  let h = String(str||'').trim();
+  if(h.includes('#')) h = h.split('#').pop();
+  if(!h) return null;
+  if(h.startsWith('gz:')){
+    if(typeof DecompressionStream === 'undefined') throw new Error('このブラウザは圧縮URLの展開に対応していません');
+    let b64 = h.slice(3).replace(/-/g,'+').replace(/_/g,'/');
+    while(b64.length % 4) b64 += '=';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for(let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const text = await new Response(stream).text();
+    return jsonToState(text);
+  }
+  return b64ToState(h);
+}
+
+function getLayoutQuery(){
+  try{
+    const q = new URLSearchParams(location.search).get('layout');
+    if(!q) return null;
+    const clean = q.trim().replace(/^layouts\\//,'');
+    if(!clean || clean.includes('..') || clean.includes('/') || clean.includes('\\\\')) return null;
+    return clean.endsWith('.json') ? clean : (clean + '.json');
+  }catch(e){ return null; }
+}
+
+async function loadExternalStartup(){
+  const h = location.hash.replace('#','').trim();
+  if(h){
+    try{
+      const st = await decodeShareHash(h);
+      if(st && applyState(st)){
+        showToast('🔗 共有リンクから読み込みました', 3500);
+        return true;
+      }
+    }catch(ex){
+      console.warn('loadHash fail', ex);
+      showToast('共有リンクの読み込みに失敗しました', 4000);
+    }
+  }
+  const lf = getLayoutQuery();
+  if(lf){
+    try{
+      const res = await fetch('./layouts/' + encodeURIComponent(lf) + '?t=' + Date.now());
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const st = await res.json();
+      if(st && applyState(st)){
+        opReleaseSlot();
+        showToast('📚 テンプレート「' + lf + '」を読み込みました', 3500);
+        return true;
+      }
+    }catch(ex){
+      console.warn('layout param fail', ex);
+      showToast('テンプレート「' + lf + '」を読み込めませんでした', 4000);
+    }
+  }
+  return false;
+}
+
+async function refreshTemplateList(){
+  const sec = document.getElementById('tpl-section');
+  const sel = document.getElementById('tpl-select');
+  const desc = document.getElementById('tpl-desc');
+  if(!sec || !sel) return;
+  try{
+    const res = await fetch('./layouts/index.json?t=' + Date.now());
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const list = await res.json();
+    if(!Array.isArray(list) || !list.length) throw new Error('empty');
+    sel.innerHTML = '';
+    list.forEach(it => {
+      if(!it || !it.file) return;
+      const opt = document.createElement('option');
+      opt.value = it.file;
+      opt.textContent = it.name || it.file;
+      opt.dataset.desc = it.desc || '';
+      sel.appendChild(opt);
+    });
+    if(!sel.options.length) throw new Error('no options');
+    const updDesc = () => {
+      const o = sel.options[sel.selectedIndex];
+      if(desc) desc.textContent = (o && o.dataset.desc) ? o.dataset.desc : '';
+    };
+    sel.onchange = updDesc;
+    updDesc();
+    sec.style.display = 'block';
+  }catch(e){
+    sec.style.display = 'none';
+  }
+}
+`;
+
+const CODE_BUILD_TO_REBUILD = `function buildSchedule3(person,seatPos,rng){
+  const meta=TACTICS3[person.role]; const segs=[]; let t=0,pos=seatPos;
+  const ls=190+(person.idx%9)*13+rng()*12, ld=40+rng()*15;
+  function pw(to){if(t>=540)return;const p=buildPath3(pos,to);const dur=Math.max(0.4,pathLen3(p)/WALK_SPEED3);const t1=Math.min(540,t+dur);segs.push({type:'walk',path:p,t0:t,t1});t=t1;pos=to;}
+  function ps(state,at,dur){if(t>=540||dur<=0)return;const t1=Math.min(540,t+dur);segs.push({type:'stat',state,pos:at,t0:t,t1});t=t1;pos=at;}
+  let first=true;
+  while(t<540){
+    let dd=first?(3+(person.idx%7)*2.5+rng()*3):(meta.deskMin+rng()*(meta.deskMax-meta.deskMin));
+    first=false;
+    if(t<ls&&t+dd>ls)dd=ls-t;
+    if(dd>0.3){if(Math.abs(pos.x-seatPos.x)>.01||Math.abs(pos.z-seatPos.z)>.01)pw(seatPos);ps('DESK',seatPos,dd);}
+    if(t>=540)break;
+    if(Math.abs(t-ls)<.8&&ls<540){pw(t3Target.door);ps('OUT',t3Target.door,ld);pw(seatPos);continue;}
+    if(t>=540)break;
+    const ch=weightedPick3(rng,meta.excursions);const dur2=ch.min+rng()*(ch.max-ch.min);const tg=t3Target[ch.name]||seatPos;pw(tg);ps(ch.name.toUpperCase(),tg,dur2);
+  }
+  return segs;
+}
+function sampleSched3(segs,min){
+  for(const s of segs){
+    if(min>=s.t0&&min<=s.t1){
+      if(s.type==='stat') return{pos:s.pos,state:s.state,moving:false,angle:null};
+      const f=s.t1>s.t0?(min-s.t0)/(s.t1-s.t0):0;
+      const pt=ptOnPath3(s.path,f);
+      return{pos:{x:pt.x,z:pt.z},state:'WALK',moving:true,angle:pt.angle};
+    }
+  }
+  const l=segs[segs.length-1];
+  return l?{pos:l.pos||l.path[l.path.length-1],state:'DESK',moving:false,angle:null}:{pos:{x:0,z:0},state:'DESK',moving:false,angle:null};
+}
+
+// 3D KEYWORD RULES
+const ROOM_WALL_H3 = 2.4;
+const KW3=[
+  [/デスクマット/,{height:0.01,kind:'solid'}],
+  [/モニター台|モニタースタンド/,{height:0.10,kind:'solid'}],
+  [/デスク|机|作業机/,{height:0.72,kind:'solid'}],
+  [/会議テーブル|ミーティング/,{height:0.72,kind:'solid'}],
+  [/作業台|カウンター|給湯室|キッチン/,{height:0.85,kind:'solid'}],
+  [/チェア|椅子|スツール/,{height:0.46,kind:'chair'}],
+  [/ロッカー|書庫|本棚|シェルフ/,{height:1.8,kind:'solid'}],
+  [/キャビネット|収納/,{height:1.0,kind:'solid'}],
+  [/コピー機|複合機\\(A3\\)/,{height:1.1,kind:'solid'}],
+  [/プリンタ|インクジェット|複合機/,{height:0.24,kind:'solid'}],
+  [/冷蔵庫/,{height:1.2,kind:'solid'}],
+  [/電子レンジ/,{height:0.30,kind:'solid'}],
+  [/電気ポット|ポット|コーヒーメーカー/,{height:0.28,kind:'solid'}],
+  [/扇風機/,{height:0.85,kind:'solid'}],
+  [/空気清浄機/,{height:0.58,kind:'solid'}],
+  [/シュレッダー/,{height:0.60,kind:'solid'}],
+  [/ノートPC/,{height:0.24,kind:'solid'}],
+  [/電話|FAX/,{height:0.12,kind:'solid'}],
+  [/モニター/,{height:0.38,kind:'solid'}],
+  [/洗面台|流し台|シンク/,{height:0.85,kind:'solid'}],
+  [/パーティション|間仕切り/,{height:1.4,kind:'solid'}],
+  [/サーバー|ラック/,{height:1.6,kind:'solid'}],
+  [/ソファ/,{height:0.4,kind:'solid'}],
+  [/ゴミ箱|リサイクルBOX/,{height:0.55,kind:'solid'}],
+  [/消火器/,{height:0.52,kind:'solid'}],
+  [/傘立て/,{height:0.55,kind:'solid'}],
+  [/観葉植物/,{height:1.0,kind:'solid'}],
+  [/テーブル|台/,{height:0.72,kind:'solid'}],
+];
+function objSpec3(o){
+  const txt=(o.defName||'')+(o.name||'')+(o.label||'');
+  if(o.isSpawn||/人物スポーン|スポナー/.test(txt)) return{height:0.02,elevation:0,kind:'spawn',guessed:false};
+  if(o.isDoor) return{height:2.0,elevation:0,kind:'door',guessed:false};
+  if(o.isWindow) return{height:1.2,elevation:0.9,kind:'window',guessed:false};
+  if(o.isStair) return{height:0.03,elevation:0,kind:'stair',guessed:false};
+  if(o.isComment) return{height:0.02,elevation:1.55,kind:'comment',guessed:false};
+  if(o.layerId===3||/コンセント/i.test(o.defName||'')) return{height:0.12,elevation:0.28,kind:'outlet',guessed:false};
+  if(/^壁/.test((o.defName||o.name||'').trim())) return{height:ROOM_WALL_H3,elevation:0,kind:'wall',guessed:false};
+  if(/ホワイトボード|掲示板/.test(txt)&&!/更衣|スペース/.test(txt)){
+    if((o.w||0)>1.4||(o.h||0)>1.4)return{height:0.02,elevation:0,kind:'zone',guessed:false};
+    return{height:0.9,elevation:1.0,kind:'board',guessed:false};
+  }
+  if(/更衣|スペース|エリア/.test(txt)&&((o.w||0)>1.2||(o.h||0)>1.2))return{height:0.02,elevation:0,kind:'zone',guessed:false};
+  for(const[re,sp]of KW3){if(re.test(txt))return{...sp,elevation:0,guessed:false};}
+  const area=(o.w||0.4)*(o.h||0.4);
+  return{height:area<0.12?0.4:area<0.5?0.72:0.85,elevation:0,kind:'solid',guessed:true};
+}
+
+const t3ModelCache=new Map();
+let t3ModelTimer=null, t3ModelWarned=false;
+window._opModelCache=t3ModelCache;
+window._opT3=()=>({groups:t3Groups,scene:t3Scene});
+function opModelRule(o){
+  const defs=window.OP_MODELS; if(!defs||!defs.rules) return null;
+  const nm=(o.defName||o.name||'').trim();
+  for(const r of defs.rules){ try{ if(r.re.test(nm)) return r; }catch(e){} }
+  return null;
+}
+function opModelEntry(file){
+  let e=t3ModelCache.get(file); if(e) return e;
+  e={state:'loading'}; t3ModelCache.set(file,e);
+  const done=()=>{ if(t3ModelTimer) clearTimeout(t3ModelTimer);
+    t3ModelTimer=setTimeout(()=>{ t3ModelTimer=null; if(threeReady&&window._op3dRoom) buildRoom3D(window._op3dRoom,{keepCam:true}); },60); };
+  if(typeof THREE==='undefined'||!THREE.GLTFLoader){ e.state='failed'; return e; }
+  try{
+    new THREE.GLTFLoader().load(((window.OP_MODELS&&window.OP_MODELS.base)||'models/')+file, gltf=>{
+      const tpl=gltf.scene, b=new THREE.Box3().setFromObject(tpl), s=new THREE.Vector3(), c=new THREE.Vector3();
+      b.getSize(s); b.getCenter(c);
+      const seen=new Set();
+      tpl.traverse(n=>{ if(!n.isMesh) return; (Array.isArray(n.material)?n.material:[n.material]).forEach(m=>{
+        if(!m||seen.has(m)) return; seen.add(m);
+        if(m.map){ m.map.encoding=THREE.LinearEncoding; m.map.needsUpdate=true; }
+        if(m.color&&m.color.convertLinearToSRGB) m.color.convertLinearToSRGB();
+      }); });
+      Object.assign(e,{state:'ready',tpl,sx:Math.max(s.x,1e-3),sy:Math.max(s.y,1e-3),sz:Math.max(s.z,1e-3),cx:c.x,cz:c.z,minY:b.min.y});
+      done();
+    }, undefined, err=>{
+      e.state='failed'; console.warn('3D model load failed:',file,err);
+      if(!t3ModelWarned){ t3ModelWarned=true; try{ showToast('3Dモデルを読み込めませんでした（箱で表示します）。index.html を直接開いている場合は、モデルを表示できません',6000); }catch(x){} }
+      done();
+    });
+  }catch(ex){ e.state='failed'; }
+  return e;
+}
+function opMakeModel(e,rule,o){
+  const n=Math.max(1,(rule.repeatX|0)||1), w=o.w/n, d=Math.max(o.h,.05), root=new THREE.Group();
+  for(let i=0;i<n;i++){
+    const inner=e.tpl.clone(true); inner.position.set(-e.cx,-e.minY,-e.cz);
+    const holder=new THREE.Group(); holder.add(inner);
+    holder.scale.set(w/e.sx,1,d/e.sz);
+    holder.position.x=-o.w/2+w*(i+.5); root.add(holder);
+  }
+  root.rotation.y=-THREE.MathUtils.degToRad(o.rot||0)+THREE.MathUtils.degToRad(rule.rot||0);
+  root.traverse(c=>{ if(c.isMesh){ c.castShadow=true; c.receiveShadow=true; } });
+  return root;
+}
+function disposeGrp(g){ while(g.children.length){const c=g.children[0];g.remove(c);if(c.geometry)c.geometry.dispose();if(c.material){if(c.material.map)c.material.map.dispose();c.material.dispose();}} }
+
+function makeSprite3(text,bg){
+  const cv=document.createElement('canvas'); const c=cv.getContext('2d');
+  const fz=40; c.font=\`\${fz}px sans-serif\`;
+  const w=Math.max(c.measureText(text).width+40,120); cv.width=w; cv.height=64;
+  c.font=\`\${fz}px sans-serif\`; c.fillStyle=bg||'rgba(20,25,32,0.85)';
+  c.beginPath(); c.roundRect?c.roundRect(0,0,w,64,14):c.rect(0,0,w,64); c.fill();
+  c.fillStyle='#fff'; c.textBaseline='middle'; c.textAlign='center'; c.fillText(text,w/2,34);
+  const tex=new THREE.CanvasTexture(cv);
+  const mat=new THREE.SpriteMaterial({map:tex,depthTest:false,transparent:true});
+  const spr=new THREE.Sprite(mat);
+  spr.scale.set(w*0.011,64*0.011,1); spr.renderOrder=999;
+  return spr;
+}
+
+function addWall3(grp,x1,z1,x2,z2,mat,wh){
+  const dx=x2-x1,dz=z2-z1,len=Math.hypot(dx,dz);
+  if(len<.02)return;
+  const g=new THREE.BoxGeometry(len,wh,.08);
+  const m=new THREE.Mesh(g,mat);
+  m.position.set((x1+x2)/2,wh/2,(z1+z2)/2);
+  m.rotation.y=-Math.atan2(dz,dx);
+  m.castShadow=true; m.receiveShadow=true; grp.add(m);
+}
+function buildWalls3(grp,rW,rH,doors){
+  const WH=ROOM_WALL_H3,mat=new THREE.MeshStandardMaterial({color:0xf4f1ea,roughness:0.95,transparent:true,opacity:0.9});
+  const gaps={west:[],east:[],north:[],south:[]};
+  doors.forEach(d=>{
+    const cx=d.x+(d.w||.9)/2,cy=d.y+(d.h||.9)/2;
+    const dW=cx,dE=rW-cx,dN=cy,dS=rH-cy;
+    const mn=Math.min(dW,dE,dN,dS);
+    if(mn===dW) gaps.west.push([Math.min(d.y,d.y+(d.h||.9)),Math.max(d.y,d.y+(d.h||.9))]);
+    else if(mn===dE) gaps.east.push([Math.min(d.y,d.y+(d.h||.9)),Math.max(d.y,d.y+(d.h||.9))]);
+    else if(mn===dN) gaps.north.push([Math.min(d.x,d.x+(d.w||.9)),Math.max(d.x,d.x+(d.w||.9))]);
+    else gaps.south.push([Math.min(d.x,d.x+(d.w||.9)),Math.max(d.x,d.x+(d.w||.9))]);
+  });
+  function run(from,to,gl,mapPt){
+    gl.sort((a,b)=>a[0]-b[0]); let cur=from;
+    gl.forEach(([g0,g1])=>{if(g0>cur){const p1=mapPt(cur),p2=mapPt(g0);addWall3(grp,p1[0],p1[1],p2[0],p2[1],mat,WH);}cur=Math.max(cur,g1);});
+    if(cur<to){const p1=mapPt(cur),p2=mapPt(to);addWall3(grp,p1[0],p1[1],p2[0],p2[1],mat,WH);}
+  }
+  run(0,rW,gaps.north,v=>[v,0]);
+  run(0,rW,gaps.south,v=>[v,rH]);
+  run(0,rH,gaps.west,v=>[0,v]);
+  run(0,rH,gaps.east,v=>[rW,v]);
+}
+
+function makePersonMesh3(tagCol, idx){
+  const g=new THREE.Group();
+  const suitColors=[0xcbb894,0xc2ae89,0xd3c2a0,0xb9a582,0xc7b592];
+  const hairColors=[0x1d1d22,0x2b231e,0x342a22,0x222328];
+  const suitCol=suitColors[(idx||0)%suitColors.length];
+  const pantCol=new THREE.Color(suitCol).multiplyScalar(0.90);
+  const pktCol=new THREE.Color(suitCol).multiplyScalar(0.84);
+  const hairCol=hairColors[(idx||0)%hairColors.length];
+
+  const suitMat=new THREE.MeshStandardMaterial({color:suitCol,roughness:0.82});
+  const pantMat=new THREE.MeshStandardMaterial({color:pantCol,roughness:0.86});
+  const pktMat=new THREE.MeshStandardMaterial({color:pktCol,roughness:0.82});
+  const skinMat=new THREE.MeshStandardMaterial({color:0xefc9a5,roughness:0.75});
+  const hairMat=new THREE.MeshStandardMaterial({color:hairCol,roughness:0.9});
+  const darkMat=new THREE.MeshStandardMaterial({color:0x24262b,roughness:0.85});
+  const shirtMat=new THREE.MeshStandardMaterial({color:0xedeff2,roughness:0.8});
+  const tagMat=new THREE.MeshStandardMaterial({color:tagCol,roughness:0.5});
+
+  const add=(parent,geo,mat,x,y,z)=>{
+    const m=new THREE.Mesh(geo,mat);
+    m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true;
+    parent.add(m); return m;
+  };
+
+  const hips=new THREE.Group(); hips.position.y=0.85; g.add(hips);
+  add(hips,new THREE.BoxGeometry(0.30,0.055,0.175),darkMat,0,0.025,0);
+
+  const torso=new THREE.Group(); hips.add(torso);
+  add(torso,new THREE.BoxGeometry(0.32,0.44,0.19),suitMat,0,0.24,0);
+  add(torso,new THREE.BoxGeometry(0.015,0.40,0.01),pktMat,0,0.23,0.097);
+  add(torso,new THREE.BoxGeometry(0.065,0.07,0.014),pktMat,-0.085,0.32,0.098);
+  add(torso,new THREE.BoxGeometry(0.055,0.032,0.014),tagMat,0.085,0.33,0.098);
+  add(torso,new THREE.BoxGeometry(0.11,0.05,0.12),shirtMat,0,0.455,0.02);
+
+  const head=new THREE.Group(); head.position.set(0,0.47,0); torso.add(head);
+  add(head,new THREE.CylinderGeometry(0.052,0.06,0.08,8),skinMat,0,0.035,0);
+  const face=add(head,new THREE.SphereGeometry(0.115,12,10),skinMat,0,0.155,0);
+  face.scale.set(0.92,1.06,0.95);
+  const hairTop=add(head,new THREE.SphereGeometry(0.122,12,10,0,Math.PI*2,0,Math.PI*0.62),hairMat,0,0.165,-0.012);
+  hairTop.scale.set(0.95,1.05,0.98); hairTop.rotation.x=-0.35;
+  add(head,new THREE.BoxGeometry(0.17,0.055,0.06),hairMat,0,0.225,0.075);
+
+  const mkArm=(sx)=>{
+    const arm=new THREE.Group(); arm.position.set(sx*0.205,0.42,0);
+    add(arm,new THREE.BoxGeometry(0.085,0.39,0.085),suitMat,0,-0.18,0);
+    add(arm,new THREE.BoxGeometry(0.068,0.075,0.068),skinMat,0,-0.405,0);
+    torso.add(arm); return arm;
+  };
+  const armL=mkArm(-1), armR=mkArm(1);
+
+  const mkLeg=(sx)=>{
+    const leg=new THREE.Group(); leg.position.set(sx*0.082,0,0);
+    add(leg,new THREE.BoxGeometry(0.118,0.42,0.128),pantMat,0,-0.21,0);
+    const knee=new THREE.Group(); knee.position.set(0,-0.42,0);
+    add(knee,new THREE.BoxGeometry(0.102,0.37,0.112),pantMat,0,-0.185,0);
+    add(knee,new THREE.BoxGeometry(0.108,0.065,0.185),darkMat,0,-0.397,0.032);
+    leg.add(knee); hips.add(leg); return{leg,knee};
+  };
+  const L=mkLeg(-1), R=mkLeg(1);
+
+  g.userData.rig={hips,armL,armR,legL:L.leg,kneeL:L.knee,legR:R.leg,kneeR:R.knee};
+  return g;
+}
+function hue3(i){ const hues=[.58,.58,.58,.58,.35,.4,.08,.09,.78]; const h=(hues[i%9]+Math.floor(i/9)*.13)%1; const c=new THREE.Color(); c.setHSL(h,.55,.5); return c.getHex(); }
+
+function formatClock3(min){ const tot=9*60+Math.floor(min),hh=Math.floor(tot/60),mm=tot%60; return \`\${String(hh).padStart(2,'0')}:\${String(mm).padStart(2,'0')}\`; }
+
+function updateCam3(){
+  const p=t3TopMode?.06:t3CamPhi;
+  const x=t3CamTarget.x+t3CamRadius*Math.sin(p)*Math.sin(t3CamTheta);
+  const y=t3CamTarget.y+t3CamRadius*Math.cos(p);
+  const z=t3CamTarget.z+t3CamRadius*Math.sin(p)*Math.cos(t3CamTheta);
+  t3Camera.position.set(x,y,z);
+  t3Camera.up.set(0,1,0); t3Camera.lookAt(t3CamTarget);
+}
+
+function updatePeople3(){
+  t3People.forEach((p,i)=>{
+    if(i>=t3PeopleCount){ p.mesh.visible=false; p.label.visible=false; return; }
+    const s=sampleSched3(p.schedule,t3SimMin);
+    const vis=s.state!=='OUT';
+    p.mesh.visible=vis; p.label.visible=vis&&t3AlwaysLabels;
+    if(vis){
+      const rig=p.mesh.userData.rig;
+      p.mesh.position.set(s.pos.x,0,s.pos.z);
+      if(s.moving){
+        if(s.angle!=null){ p.lastAngle=s.angle; p.mesh.rotation.y=s.angle; }
+        const ph=t3SimMin*2.5+i*1.7;
+        const sw=Math.sin(ph)*0.62;
+        rig.hips.position.set(0,0.85+Math.abs(Math.cos(ph))*0.025,0);
+        rig.legL.rotation.x=sw;  rig.kneeL.rotation.x=Math.max(0,-sw*0.45);
+        rig.legR.rotation.x=-sw; rig.kneeR.rotation.x=Math.max(0,sw*0.45);
+        rig.armL.rotation.x=-sw*0.75; rig.armR.rotation.x=sw*0.75;
+        p.label.position.set(s.pos.x,1.92,s.pos.z);
+      } else if(s.state==='DESK' && !p.seatPos.stand){
+        p.mesh.rotation.y=-THREE.MathUtils.degToRad(p.seatPos.rot||0);
+        rig.hips.position.set(0,0.52,-0.04);
+        rig.legL.rotation.x=-1.48; rig.kneeL.rotation.x=1.42;
+        rig.legR.rotation.x=-1.48; rig.kneeR.rotation.x=1.42;
+        rig.armL.rotation.x=-0.55; rig.armR.rotation.x=-0.55;
+        p.label.position.set(s.pos.x,1.60,s.pos.z);
+      } else {
+        p.mesh.rotation.y=(s.state==='DESK')?-THREE.MathUtils.degToRad(p.seatPos.rot||0):(p.lastAngle!=null?p.lastAngle:0);
+        rig.hips.position.set(0,0.85,0);
+        rig.legL.rotation.x=0; rig.kneeL.rotation.x=0;
+        rig.legR.rotation.x=0; rig.kneeR.rotation.x=0;
+        rig.armL.rotation.x=-0.12; rig.armR.rotation.x=-0.12;
+        p.label.position.set(s.pos.x,1.92,s.pos.z);
+      }
+    }
+    const el=document.getElementById('p3-state-'+i);
+    if(el) el.textContent=s.moving?'移動中…':(STATE_LABEL3[s.state]||s.state);
+  });
+}
+
+let t3SpawnPoints=[];
+function rebuildPeople3(){
+  disposeGrp(t3Groups.person);
+  t3People=[];
+  document.getElementById('sim3d-people-list').innerHTML='';
+  const activeSeats = t3SpawnPoints.map(sp=>{
+    let bestChair=null, bestD=0.65;
+    for(const c of t3Seats){
+      const d=Math.hypot(c.x-sp.x, c.z-sp.z);
+      if(d<bestD){ bestD=d; bestChair=c; }
+    }
+    return bestChair ? {x:bestChair.x, z:bestChair.z, rot:bestChair.rot, stand:false} : {x:sp.x, z:sp.z, rot:sp.rot, stand:true};
+  });
+  const cnt=activeSeats.length;
+  document.getElementById('sim3d-scount').textContent=cnt;
+  const psl=document.getElementById('sim3d-pslider');
+  psl.max=cnt; t3PeopleCount=cnt; psl.value=t3PeopleCount;
+  document.getElementById('sim3d-pcount').textContent=t3PeopleCount;
+
+  activeSeats.forEach((seat,i)=>{
+    const role=ROLE_CYCLE3[i%ROLE_CYCLE3.length];
+    const name=NAMES3[i%NAMES3.length];
+    const color=hue3(i);
+    const p={name,role,idx:i,seatPos:seat,color,lastAngle:-THREE.MathUtils.degToRad(seat.rot||0)};
+    const rng=mulberry32_3(1000+i*97);
+    p.schedule=buildSchedule3(p,seat,rng);
+    p.mesh=makePersonMesh3(color,i);
+    p.label=makeSprite3(name,'rgba(20,25,32,0.85)');
+    p.label.visible=t3AlwaysLabels;
+    t3Groups.person.add(p.mesh,p.label);
+    t3People.push(p);
+
+    const row=document.createElement('div');
+    row.className='p3d-row';
+    const hexCol='#'+color.toString(16).padStart(6,'0');
+    row.innerHTML=\`<span class="p3d-dot" style="background:\${hexCol}"></span><span class="p3d-name">\${name}</span><span class="p3d-state" id="p3-state-\${i}">-</span>\`;
+    document.getElementById('sim3d-people-list').appendChild(row);
+  });
+  updatePeople3();
+}
+
+`;
+
+document.getElementById('in-html').addEventListener('change', (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    let txt = ev.target.result;
+    resetLog('=== index.html パッチ実行 (v3) ===');
+    let okCount = 0;
+
+    function applyStep(label, re, fn) {
+      if (re.test(txt)) {
+        txt = txt.replace(re, fn);
+        okCount++;
+        log('✅ ' + label);
+      } else {
+        log('⚠ スキップ/未一致: ' + label);
+      }
+    }
+
+    // --- 共有URL＆テンプレート読込系 ---
+    if (!/id="btn-share"/.test(txt)) {
+      applyStep('ヘッダーに「🔗 共有」ボタン復活',
+        /(<button class="hbtn" id="btn-export">[^<]*<\/button>)/,
+        (m) => m + `\n  <button class="hbtn" id="btn-share" title="レイアウトを共有リンク(URL)にします">🔗 共有</button>`
+      );
+    } else { okCount++; log('ℹ 「🔗 共有」ボタンは追加済み'); }
+
+    if (!/id="share-len-info"/.test(txt)) {
+      applyStep('共有モーダルに文字数表示を追加',
+        /(<textarea id="share-url" readonly><\/textarea>)/,
+        (m) => m + `\n    <div id="share-len-info" style="font-size:11px;color:var(--text3);margin:-4px 0 10px;"></div>`
+      );
+    } else { okCount++; log('ℹ share-len-info は追加済み'); }
+
+    if (!/id="tpl-section"/.test(txt)) {
+      applyStep('読込モーダルにテンプレート選択枠を追加',
+        /(<div class="modal-overlay" id="modal-import">[\s\S]*?<p>[^<]*<\/p>)/,
+        (m) => m + `\n    <div id="tpl-section" style="display:none; margin-bottom:12px; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px;">\n` +
+          `      <div style="font-size:11px; font-weight:bold; color:var(--accent); margin-bottom:6px;">📚 テンプレート / サンプルから読込</div>\n` +
+          `      <div style="display:flex; gap:6px;">\n` +
+          `        <select id="tpl-select" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 8px; font-size:12px;"></select>\n` +
+          `        <button class="modal-btn primary" id="tpl-load-btn" style="padding:5px 12px;">開く</button>\n` +
+          `      </div>\n` +
+          `      <div id="tpl-desc" style="font-size:10px; color:var(--text3); margin-top:4px;"></div>\n` +
+          `    </div>`
+      );
+    } else { okCount++; log('ℹ テンプレート選択枠は追加済み'); }
+
+    if (!/async function encodeShareHash/.test(txt)) {
+      applyStep('gzip圧縮共有URL・テンプレート取得関数を追加',
+        /(function b64ToState\(b\)\{[^\r\n]*\})/,
+        (m) => m + '\n' + CODE_SHARE_HELPERS
+      );
+    } else { okCount++; log('ℹ 共有URL・テンプレート関数は追加済み'); }
+
+    applyStep('「🔗 共有」ボタン処理を短縮URL生成に変更',
+      /const _bShare=document\.getElementById\('btn-share'\);[\s\S]*?(?=document\.getElementById\('ms-close'\))/,
+      () => `const _bShare=document.getElementById('btn-share');\nif(_bShare) _bShare.onclick=async ()=>{\n` +
+        `  const ta=document.getElementById('share-url');\n` +
+        `  const infoEl=document.getElementById('share-len-info');\n` +
+        `  ta.value='共有URLを生成中...';\n` +
+        `  showModal('modal-share');\n` +
+        `  try{\n` +
+        `    const hash=await encodeShareHash(getState());\n` +
+        `    const base=location.href.split('#')[0].split('?')[0];\n` +
+        `    const url=base+'#'+hash;\n` +
+        `    ta.value=url;\n` +
+        `    if(infoEl) infoEl.textContent='URLの長さ: '+url.length.toLocaleString()+' 文字（gzip圧縮済み）';\n` +
+        `  }catch(ex){\n` +
+        `    ta.value='';\n` +
+        `    showError('共有URLの作成に失敗しました: '+ex.message);\n` +
+        `  }\n` +
+        `};\n`
+    );
+
+    if (!/refreshTemplateList\(\)/.test(txt)) {
+      applyStep('「📥 読込」モーダルにテンプレート一覧読込を追加',
+        /btnImport\.onclick=\(\)=>\{\s*\r?\n\s*document\.getElementById\('import-data'\)\.value='';\s*\r?\n\s*showModal\('modal-import'\);\s*\r?\n\};/,
+        () => `btnImport.onclick=()=>{\n` +
+          `  document.getElementById('import-data').value='';\n` +
+          `  refreshTemplateList();\n` +
+          `  showModal('modal-import');\n` +
+          `};\n` +
+          `document.getElementById('tpl-load-btn').onclick=async ()=>{\n` +
+          `  const sel=document.getElementById('tpl-select');\n` +
+          `  const file=sel&&sel.value; if(!file) return;\n` +
+          `  try{\n` +
+          `    const res=await fetch('./layouts/'+encodeURIComponent(file)+'?t='+Date.now());\n` +
+          `    if(!res.ok) throw new Error('HTTP '+res.status);\n` +
+          `    const st=await res.json();\n` +
+          `    if(st && opWithBackup('テンプレート読込前',()=>applyState(st))){\n` +
+          `      opReleaseSlot(); saveLS(); hideModal('modal-import');\n` +
+          `      showToast('📚 テンプレート「'+sel.options[sel.selectedIndex].textContent+'」を読み込みました',3500);\n` +
+          `    } else {\n` +
+          `      showError('テンプレートを読み込めませんでした: '+(applyState.lastError||'不正なデータ'));\n` +
+          `    }\n` +
+          `  }catch(ex){ showError('テンプレート取得に失敗しました: '+ex.message); }\n` +
+          `};`
+      );
+    } else { okCount++; log('ℹ テンプレート読込ハンドラは適用済み'); }
+
+    applyStep('テキスト貼り付け読込をgzip圧縮URL対応に変更',
+      /document\.getElementById\('mi-ok'\)\.onclick=(?:async\s*)?\(\)=>\{[\s\S]*?(?=\r?\n\s*\/\/ Clear)/,
+      () => `document.getElementById('mi-ok').onclick=async ()=>{\n` +
+        `  const raw=document.getElementById('import-data').value.trim();\n` +
+        `  if(!raw){ showToast('データを入力してください'); return; }\n` +
+        `  let state=jsonToState(raw);\n` +
+        `  if(!state){ try{ state=await decodeShareHash(raw); }catch(ex){} }\n` +
+        `  if(state && opWithBackup('貼り付け読込前',()=>applyState(state))){\n` +
+        `    opReleaseSlot(); saveLS(); hideModal('modal-import');\n` +
+        `    showToast('読み込みました（スロットとの関連付けは解除しました）',3500);\n` +
+        `  } else {\n` +
+        `    showError(state\n` +
+        `      ? 'データを読み込めませんでした。\\n理由: '+(applyState.lastError||'不明')+'\\n（現在の作業内容はそのまま残っています）'\n` +
+        `      : 'データの解析に失敗しました。\\n共有URL または JSONファイルの内容を貼り付けてください。');\n` +
+        `  }\n` +
+        `};`
+    );
+
+    if (!/loadExternalStartup/.test(txt.slice(txt.indexOf('BOOT') - 100))) {
+      applyStep('起動処理(BOOT)を圧縮URL・?layout=対応に変更',
+        /if\(!loadHash\(\)\)\s*loadLS\(\);/,
+        () => `const _hasExt = !!location.hash.replace('#','').trim() || !!getLayoutQuery();\n` +
+          `  if(!_hasExt) loadLS();\n` +
+          `  else loadExternalStartup().then(ok=>{ if(!ok) loadLS(); syncRoomInputs(); updateCounts(); });`
+      );
+    } else { okCount++; log('ℹ BOOT処理は適用済み'); }
+
+    // --- スポナー・3D・作業服系（v2相当を包含） ---
+    if (!/obj\.isSpawn\|\|\/人物スポーン\//.test(txt)) {
+      applyStep('2D スポーンアイコン描画追加', /(\/\/\s*Special door arc\r?\n\s*if\(obj\.doorArc\)\{)/, (m) =>
+        `if(obj.isSpawn||/人物スポーン/.test(obj.defName||'')){\n` +
+        `    ctx.setLineDash([4,3]); ctx.strokeStyle='#ff9800'; ctx.lineWidth=2;\n` +
+        `    ctx.fillStyle='rgba(255,152,0,0.18)';\n` +
+        `    ctx.beginPath(); ctx.ellipse(0,0,pw/2,ph/2,0,0,Math.PI*2); ctx.fill(); ctx.stroke();\n` +
+        `    ctx.setLineDash([]);\n` +
+        `    ctx.fillStyle=isLight?'#b45309':'#ffb74d';\n` +
+        `    ctx.font=\`bold \${Math.max(10,Math.min(pw,ph)*0.48)}px sans-serif\`;\n` +
+        `    ctx.textAlign='center'; ctx.textBaseline='middle';\n` +
+        `    ctx.fillText('👤',0,1);\n` +
+        `    ctx.shadowBlur=0; ctx.restore(); return;\n  }\n  ` + m
+      );
+    } else { okCount++; log('ℹ 2D スポーンアイコン描画は適用済み'); }
+
+    if (!/c\.isSpawn=true/.test(txt)) {
+      applyStep('validateState に isSpawn 保持追加', /if\(o\.isComment\)\s*c\.isComment=true;/, () =>
+        `if(o.isComment) c.isComment=true;\n    if(o.isSpawn) c.isSpawn=true;`
+      );
+    } else { okCount++; log('ℹ validateState isSpawn は適用済み'); }
+
+    if (!/isSpawn:\s*!!o\.isSpawn/.test(txt)) {
+      applyStep('convert2Dto3D に isSpawn 引き継ぎ追加', /isComment:\s*!!o\.isComment,/, () =>
+        `isComment: !!o.isComment,\n      isSpawn: !!o.isSpawn,`
+      );
+    } else { okCount++; log('ℹ convert2Dto3D isSpawn は適用済み'); }
+
+    if (!/isSpawn:\s*!!def\.isSpawn/.test(txt)) {
+      applyStep('placeObject のスポーンレイヤー自動割当',
+        /isComment:!!def\.isComment,\s*\r?\n\s*layerId:\(def\.isDoor\|\|def\.isWindow\|\|def\.isStair\)[^\r\n]*/,
+        () => `isComment:!!def.isComment,\n    isSpawn:  !!def.isSpawn,\n    layerId:(def.isSpawn||/人物スポーン/.test(def.name||'')) ? (window._opSpawnLayerId||6) : ((def.isDoor||def.isWindow||def.isStair) ? 2 : (window._activeLayerId2||activeLayerId||1))`
+      );
+    } else { okCount++; log('ℹ placeObject スポーン割当は適用済み'); }
+
+    if (!/name:'人物スポーン'/.test(txt)) {
+      applyStep('DEFAULT_LAYERS に「人物スポーン」レイヤー追加',
+        /const DEFAULT_LAYERS = \[[\s\S]*?\];\s*\r?\n([\s\S]*?)let nextLayerId = 6;/,
+        (m, mid) =>
+          `const DEFAULT_LAYERS = [\n` +
+          `  {id:1, name:'家具',         color:'#4a90d9', visible:true},\n` +
+          `  {id:2, name:'構造',         color:'#8899bb', visible:true},\n` +
+          `  {id:3, name:'電気配線',     color:'#ffcc00', visible:true},\n` +
+          `  {id:4, name:'LAN',          color:'#4488ff', visible:true},\n` +
+          `  {id:5, name:'その他',       color:'#9da3c8', visible:true},\n` +
+          `  {id:6, name:'人物スポーン', color:'#ff9800', visible:true},\n` +
+          `];\n` + mid + `let nextLayerId = 7;`
+      );
+    } else { okCount++; log('ℹ DEFAULT_LAYERS は適用済み'); }
+
+    if (!/window\._opSpawnLayerId/.test(txt)) {
+      applyStep('旧データ読込時の「人物スポーン」レイヤー補完',
+        /if\(okLayers\.length>0\)\{[\s\S]*?旧データを読み込みました[\s\S]*?\}/,
+        () =>
+          `if(okLayers.length>0){\n` +
+          `    if(!okLayers.some(l=>l.name==='人物スポーン')){\n` +
+          `      const sid=okLayers.some(l=>l.id===6)?(Math.max(...okLayers.map(l=>l.id),6)+1):6;\n` +
+          `      okLayers.push({id:sid,name:'人物スポーン',color:'#ff9800',visible:true});\n` +
+          `    }\n` +
+          `    const spL=okLayers.find(l=>l.name==='人物スポーン');\n` +
+          `    window._opSpawnLayerId=spL?spL.id:6;\n` +
+          `    layers=okLayers;\n` +
+          `    nextLayerId=Math.max(...okLayers.map(l=>l.id),6)+1;\n` +
+          `    activeLayerId=okLayers.some(l=>l.id===state.activeLayerId)?state.activeLayerId:okLayers[0].id;\n` +
+          `  } else {\n` +
+          `    layers=JSON.parse(JSON.stringify(DEFAULT_LAYERS)); nextLayerId=7; activeLayerId=1; window._opSpawnLayerId=6;\n` +
+          `    if(!hadLayers) showToast('旧データを読み込みました。レイヤーはデフォルトに設定されました。');\n` +
+          `  }`
+      );
+    } else { okCount++; log('ℹ _opRestoreLayers は適用済み'); }
+
+    applyStep('3D人間・スポナー専用化・重複除去・歩行アニメ更新',
+      /function buildSchedule3\([\s\S]*?(?=\/\/\s*─── データ変換:)/,
+      () => CODE_BUILD_TO_REBUILD
+    );
+
+    if (!/t3SpawnPoints=\[\];/.test(txt)) {
+      applyStep('t3SpawnPoints 初期化追加', /t3PickAbles=\[\];\s*t3LabelSprites=\[\];\s*t3Seats=\[\];/, () =>
+        `t3PickAbles=[]; t3LabelSprites=[]; t3Seats=[]; t3SpawnPoints=[];`
+      );
+    } else { okCount++; log('ℹ t3SpawnPoints 初期化は適用済み'); }
+
+    applyStep('給湯室・キッチン等を台(Surface)に追加',
+      /const RE_SURFACE=\/デスク[^;]*;/,
+      () => `const RE_SURFACE=/デスク|机|テーブル|作業台|カウンター|キャビネット|本棚|書庫|シェルフ|ロッカー|冷蔵庫|袖机|ワゴン|パレット|給湯室|キッチン|流し台|シンク|台$/;`
+    );
+
+    if (!/if\(spec\.kind==='spawn'\)/.test(txt)) {
+      applyStep('buildRoom3D のスポーン点収集（3D非表示）追加',
+        /(items3\.forEach\(\(\{o,spec,ment,mrule,elev\}\)=>\{\s*\r?\n\s*const cx=o\.x\+o\.w\/2, cz=o\.y\+o\.h\/2;)/,
+        (m) => m + `\n    if(spec.kind==='spawn'){ t3SpawnPoints.push({x:cx,z:cz,rot:(o.rot||0)}); return; }`
+      );
+    } else { okCount++; log('ℹ buildRoom3D スポーン収集は適用済み'); }
+
+    const cntSample = (txt.match(/function sampleSched3\(/g) || []).length;
+    const cntRebuild = (txt.match(/function rebuildPeople3\(/g) || []).length;
+    const cntShare = (txt.match(/id="btn-share"/g) || []).length;
+    log(`\n[整合性チェック] sampleSched3=${cntSample}個, rebuildPeople3=${cntRebuild}個, 共有ボタン=${cntShare}個`);
+    if (cntSample !== 1 || cntRebuild !== 1 || cntShare !== 1) {
+      log('⚠ 整合性チェックに異常があります！ログを貼ってお知らせください。');
+    } else {
+      log(`✅ すべて正常 (${okCount}/18 項目OK) → index.html を保存します。`);
+    }
+    saveFile('index.html', txt, 'text/html;charset=utf-8');
+    e.target.value = '';
+  };
+  reader.readAsText(file, 'utf-8');
+});
+
+document.getElementById('in-items').addEventListener('change', (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    let txt = ev.target.result;
+    resetLog('=== items.js パッチ実行 ===');
+    let okCount = 0;
+
+    if (!/個人ロッカー\(小\)/.test(txt)) {
+      if (/シューズBOX[^\r\n]*/.test(txt)) {
+        txt = txt.replace(/(シューズBOX[^\r\n]*)/, (m) =>
+          m + `\n  {cat:'収納',name:'個人ロッカー(小)',w:0.35,h:0.35,color:'#e5decb',icon:'🗄'},`
+        );
+        okCount++; log('✅ 個人ロッカー(小) を追加');
+      } else { log('⚠ シューズBOX が見つかりませんでした'); }
+    } else { okCount++; log('ℹ 個人ロッカー(小) は追加済み'); }
+
+    if (!/ゴミ箱 45L/.test(txt)) {
+      if (/name:'ゴミ箱'[^\r\n]*/.test(txt)) {
+        txt = txt.replace(/(name:'ゴミ箱'[^\r\n]*)/, (m) =>
+          m + `\n` +
+          `  {cat:'その他',name:'ゴミ箱 45L(蓋つき)',w:0.32,h:0.42,color:'#7c858e',icon:'🗑'},\n` +
+          `  {cat:'その他',name:'ゴミ箱 90L(蓋なし)',w:0.42,h:0.55,color:'#606972',icon:'🗑'},\n` +
+          `  {cat:'その他',name:'電気ポット',w:0.22,h:0.28,color:'#e6dfd0',icon:'🫖'},\n` +
+          `  {cat:'その他',name:'人物スポーン',w:0.5,h:0.5,color:'#ff9800',icon:'👤',round:true,isSpawn:true},`
+        );
+        okCount++; log('✅ ゴミ箱(45L/90L)・電気ポット・人物スポーンを追加');
+      } else { log('⚠ ゴミ箱 が見つかりませんでした'); }
+    } else { okCount++; log('ℹ 追加備品は追加済み'); }
+
+    log(`\n完了 (${okCount}/2 項目OK) → items.js を保存します。`);
+    saveFile('items.js', txt, 'application/javascript;charset=utf-8');
+    e.target.value = '';
+  };
+  reader.readAsText(file, 'utf-8');
+});
+
+function downloadModelsJS() {
+  const txt = `window.OP_MODELS = {
+  base: 'models/',
+  rules: [
+    // ── オフィス基本 ──
+    { re: /^デスク W(120|140|160)$/,                       file: 'desk_steel.glb' },
+    { re: /^(オフィスチェア|ハイバックチェア)$/,            file: 'chair_office.glb' },
+    { re: /^キャビネット$/,                                file: 'cabinet_steel.glb' },
+    { re: /^個人ロッカー/,                                 file: 'locker_small.glb' },
+    { re: /^ロッカー 3連$/,                                file: 'locker_3row_steel.glb' },
+    { re: /^ロッカー 6連$/,                                file: 'locker_3row_steel.glb', repeatX: 2 },
+    { re: /^コピー機$|^複合機\\(A3\\)$/,                     file: 'copier_desktop.glb' },
+    { re: /^(インクジェット|レーザープリンタ|複合機\\(A4\\))/, file: 'printer_home.glb' },
+    { re: /^(電話機|固定電話機|IP電話機)$/,                file: 'phone_office_white.glb' },
+    { re: /^ノートPC/,                                     file: 'laptop_black.glb' },
+    { re: /^デスクマット$/,                                file: 'deskmat_green.glb' },
+
+    // ── 会議・作業・倉庫 ──
+    { re: /^会議テーブル/,                                 file: 'table_meeting_folding.glb' },
+    { re: /^作業台/,                                       file: 'workbench_steel.glb' },
+    { re: /^台車\\(平台\\)$/,                              file: 'cart_flat.glb' },
+    { re: /^脚立/,                                         file: 'ladder_alu.glb' },
+    { re: /^冷蔵庫$/,                                      file: 'fridge_retro.glb' },
+    { re: /^ホワイトボード$/,                              file: 'whiteboard_wall.glb' },
+
+    // ── 追加備品・家電・構造 ──
+    { re: /^扇風機/,                                       file: 'fan_home.glb' },
+    { re: /^空気清浄機$/,                                  file: 'air_purifier.glb' },
+    { re: /^ドア\\(開き戸\\)$/,                            file: 'door_swing_white.glb' },
+    { re: /^ゴミ箱 90L|^リサイクルBOX$/,                   file: 'trash_90l_open.glb' },
+    { re: /^ゴミ箱/,                                       file: 'trash_45l_lid.glb' },
+    { re: /^電子レンジ$/,                                  file: 'microwave_oven.glb' },
+    { re: /^(電気ポット|コーヒーメーカー)$/,               file: 'kettle_electric_pot.glb' },
+    { re: /^洗面台$/,                                      file: 'washbasin_unit.glb' },
+    { re: /^パーティション/,                               file: 'partition_low.glb' },
+    { re: /シュレッダー/,                                  file: 'shredder_office.glb' },
+    { re: /^サーバーラック$/,                              file: 'server_rack.glb' },
+    { re: /^消火器$/,                                      file: 'fire_extinguisher.glb' },
+    { re: /^観葉植物/,                                     file: 'plant_potted.glb' },
+    { re: /^傘立て$/,                                      file: 'umbrella_stand.glb' },
+  ]
+};
+`;
+  resetLog('=== models.js 生成 ===\n✅ 最新版 models.js をダウンロードしました。');
+  saveFile('models.js', txt, 'application/javascript;charset=utf-8');
+}
+</script>
+</body>
+</html>

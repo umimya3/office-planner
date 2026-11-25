@@ -542,6 +542,7 @@ input[type=range].lp-range { flex: 1; accent-color: var(--accent); }
   <div class="spacer"></div>
   <button class="hbtn primary" id="btn-import">📥 読込</button>
   <button class="hbtn" id="btn-export">📤 保存</button>
+  <button class="hbtn" id="btn-share" title="レイアウトを共有リンク(URL)にします">🔗 共有</button>
   <button class="hbtn" id="btn-imgexp" title="図面を高解像度の画像(PNG)で保存します">🖼 画像保存</button>
   <button class="hbtn" id="btn-ruler">📏 ルーラー</button>
   <button class="hbtn" id="btn-theme" title="テーマ切替">🌓 モード</button>
@@ -655,6 +656,7 @@ input[type=range].lp-range { flex: 1; accent-color: var(--accent); }
     <h3>🔗 共有リンク</h3>
     <p>以下のURLにレイアウト情報が含まれます。コピーして共有してください。</p>
     <textarea id="share-url" readonly></textarea>
+    <div id="share-len-info" style="font-size:11px;color:var(--text3);margin:-4px 0 10px;"></div>
     <div class="modal-btns">
       <button class="modal-btn" id="ms-close">閉じる</button>
       <button class="modal-btn primary" id="ms-copy">📋 コピー</button>
@@ -665,6 +667,14 @@ input[type=range].lp-range { flex: 1; accent-color: var(--accent); }
   <div class="modal">
     <h3>📥 データ読み込み</h3>
     <p>保存したJSONファイルを選択するか、共有URLを貼り付けてください。</p>
+    <div id="tpl-section" style="display:none; margin-bottom:12px; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px;">
+      <div style="font-size:11px; font-weight:bold; color:var(--accent); margin-bottom:6px;">📚 テンプレート / サンプルから読込</div>
+      <div style="display:flex; gap:6px;">
+        <select id="tpl-select" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 8px; font-size:12px;"></select>
+        <button class="modal-btn primary" id="tpl-load-btn" style="padding:5px 12px;">開く</button>
+      </div>
+      <div id="tpl-desc" style="font-size:10px; color:var(--text3); margin-top:4px;"></div>
+    </div>
     <div style="margin-bottom: 12px;">
       <button class="modal-btn primary" id="mi-file-btn" style="width: 100%;">📁 ファイルを選択して読込</button>
       <input type="file" id="mi-file-input" accept=".json" style="display: none;">
@@ -2133,6 +2143,118 @@ function stateToJSON(){ return JSON.stringify(getState(), null, 2); }
 function jsonToState(s){ try{ return JSON.parse(s); }catch(e){ return null; } }
 function stateToB64(){ try{ return btoa(encodeURIComponent(JSON.stringify(getState()))); }catch(e){ return null; } }
 function b64ToState(b){ try{ return jsonToState(decodeURIComponent(atob(b))); }catch(e){ return null; } }
+
+async function encodeShareHash(stateObj){
+  const json = JSON.stringify(stateObj);
+  if(typeof CompressionStream !== 'undefined'){
+    try{
+      const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
+      const buf = await new Response(stream).arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for(let i=0; i<bytes.length; i+=0x8000){
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000));
+      }
+      const b64url = btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      return 'gz:' + b64url;
+    }catch(e){ console.warn('gzip encode fallback:', e); }
+  }
+  return btoa(encodeURIComponent(json));
+}
+
+async function decodeShareHash(str){
+  let h = String(str||'').trim();
+  if(h.includes('#')) h = h.split('#').pop();
+  if(!h) return null;
+  if(h.startsWith('gz:')){
+    if(typeof DecompressionStream === 'undefined') throw new Error('このブラウザは圧縮URLの展開に対応していません');
+    let b64 = h.slice(3).replace(/-/g,'+').replace(/_/g,'/');
+    while(b64.length % 4) b64 += '=';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for(let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const text = await new Response(stream).text();
+    return jsonToState(text);
+  }
+  return b64ToState(h);
+}
+
+function getLayoutQuery(){
+  try{
+    const q = new URLSearchParams(location.search).get('layout');
+    if(!q) return null;
+    const clean = q.trim().replace(/^layouts\//,'');
+    if(!clean || clean.includes('..') || clean.includes('/') || clean.includes('\\')) return null;
+    return clean.endsWith('.json') ? clean : (clean + '.json');
+  }catch(e){ return null; }
+}
+
+async function loadExternalStartup(){
+  const h = location.hash.replace('#','').trim();
+  if(h){
+    try{
+      const st = await decodeShareHash(h);
+      if(st && applyState(st)){
+        showToast('🔗 共有リンクから読み込みました', 3500);
+        return true;
+      }
+    }catch(ex){
+      console.warn('loadHash fail', ex);
+      showToast('共有リンクの読み込みに失敗しました', 4000);
+    }
+  }
+  const lf = getLayoutQuery();
+  if(lf){
+    try{
+      const res = await fetch('./layouts/' + encodeURIComponent(lf) + '?t=' + Date.now());
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      const st = await res.json();
+      if(st && applyState(st)){
+        opReleaseSlot();
+        showToast('📚 テンプレート「' + lf + '」を読み込みました', 3500);
+        return true;
+      }
+    }catch(ex){
+      console.warn('layout param fail', ex);
+      showToast('テンプレート「' + lf + '」を読み込めませんでした', 4000);
+    }
+  }
+  return false;
+}
+
+async function refreshTemplateList(){
+  const sec = document.getElementById('tpl-section');
+  const sel = document.getElementById('tpl-select');
+  const desc = document.getElementById('tpl-desc');
+  if(!sec || !sel) return;
+  try{
+    const res = await fetch('./layouts/index.json?t=' + Date.now());
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const list = await res.json();
+    if(!Array.isArray(list) || !list.length) throw new Error('empty');
+    sel.innerHTML = '';
+    list.forEach(it => {
+      if(!it || !it.file) return;
+      const opt = document.createElement('option');
+      opt.value = it.file;
+      opt.textContent = it.name || it.file;
+      opt.dataset.desc = it.desc || '';
+      sel.appendChild(opt);
+    });
+    if(!sel.options.length) throw new Error('no options');
+    const updDesc = () => {
+      const o = sel.options[sel.selectedIndex];
+      if(desc) desc.textContent = (o && o.dataset.desc) ? o.dataset.desc : '';
+    };
+    sel.onchange = updDesc;
+    updDesc();
+    sec.style.display = 'block';
+  }catch(e){
+    sec.style.display = 'none';
+  }
+}
+
  
 /* ═══════════════════════════════════════════════════════════════
    LOCALSTORAGE - fixed
@@ -2305,25 +2427,24 @@ const _bPrint=document.getElementById('btn-print'); if(_bPrint) _bPrint.onclick=
 };
 
 // Share
-const _bShare=document.getElementById('btn-share'); if(_bShare) _bShare.onclick=()=>{
+const _bShare=document.getElementById('btn-share');
+if(_bShare) _bShare.onclick=async ()=>{
+  const ta=document.getElementById('share-url');
+  const infoEl=document.getElementById('share-len-info');
+  ta.value='共有URLを生成中...';
+  showModal('modal-share');
   try{
-    const state = getState();
-    const json  = JSON.stringify(state, null, 2);
-    const blob  = new Blob([json], {type:'application/json;charset=utf-8'});
-    const url   = URL.createObjectURL(blob);
-    const a     = document.createElement('a');
-    const name  = (typeof currentSlot!=='undefined' && currentSlot!==null)
-      ? ('layout_slot'+(currentSlot+1)+'.json')
-      : 'layout.json';
-    a.href=url; a.download=name;
-    document.body.appendChild(a); a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('📤 '+name+' としてダウンロードしました');
-  }catch(e){
-    showToast('エクスポートに失敗しました: '+e.message);
+    const hash=await encodeShareHash(getState());
+    const base=location.href.split('#')[0].split('?')[0];
+    const url=base+'#'+hash;
+    ta.value=url;
+    if(infoEl) infoEl.textContent='URLの長さ: '+url.length.toLocaleString()+' 文字（gzip圧縮済み）';
+  }catch(ex){
+    ta.value='';
+    showError('共有URLの作成に失敗しました: '+ex.message);
   }
-};document.getElementById('ms-close').onclick=()=>hideModal('modal-share');
+};
+document.getElementById('ms-close').onclick=()=>hideModal('modal-share');
 document.getElementById('ms-copy').onclick=()=>{
   const ta=document.getElementById('share-url');
   ta.select();
@@ -2384,29 +2505,18 @@ miFileInput.onchange=(e)=>{
 };
 
 document.getElementById('mi-cancel').onclick=()=>hideModal('modal-import');
-document.getElementById('mi-ok').onclick=()=>{
+document.getElementById('mi-ok').onclick=async ()=>{
   const raw=document.getElementById('import-data').value.trim();
   if(!raw){ showToast('データを入力してください'); return; }
-  let state=null;
-  // Try JSON directly
-  state=jsonToState(raw);
-  // Try as URL with hash
-  if(!state && raw.includes('#')){
-    const hp=raw.split('#').pop();
-    state=b64ToState(hp);
-  }
-  // Try as raw base64
-  if(!state) state=b64ToState(raw);
- 
+  let state=jsonToState(raw);
+  if(!state){ try{ state=await decodeShareHash(raw); }catch(ex){} }
   if(state && opWithBackup('貼り付け読込前',()=>applyState(state))){
-    opReleaseSlot();
-    saveLS();
-    hideModal('modal-import');
+    opReleaseSlot(); saveLS(); hideModal('modal-import');
     showToast('読み込みました（スロットとの関連付けは解除しました）',3500);
   } else {
     showError(state
       ? 'データを読み込めませんでした。\n理由: '+(applyState.lastError||'不明')+'\n（現在の作業内容はそのまま残っています）'
-      : 'データの解析に失敗しました。\nJSONファイルの内容を貼り付けてください。');
+      : 'データの解析に失敗しました。\n共有URL または JSONファイルの内容を貼り付けてください。');
   }
 };
  
@@ -2454,7 +2564,9 @@ function showToast(msg,ms=2200){
    ═══════════════════════════════════════════════════════════════ */
 try{
   buildSidebar('furniture');
-  if(!loadHash()) loadLS();
+  const _hasExt = !!location.hash.replace('#','').trim() || !!getLayoutQuery();
+  if(!_hasExt) loadLS();
+  else loadExternalStartup().then(ok=>{ if(!ok) loadLS(); syncRoomInputs(); updateCounts(); });
   if(typeof window._opShowBootNotice==='function') window._opShowBootNotice();
   syncRoomInputs();
   setTimeout(()=>document.getElementById('zoom-fit').click(), 60);
@@ -4167,7 +4279,6 @@ function buildSchedule3(person,seatPos,rng){
   function ps(state,at,dur){if(t>=540||dur<=0)return;const t1=Math.min(540,t+dur);segs.push({type:'stat',state,pos:at,t0:t,t1});t=t1;pos=at;}
   let first=true;
   while(t<540){
-    // 開始直後は人ごとに3〜20分ほどで動き出し、開いてすぐ歩行が見えるようにする
     let dd=first?(3+(person.idx%7)*2.5+rng()*3):(meta.deskMin+rng()*(meta.deskMax-meta.deskMin));
     first=false;
     if(t<ls&&t+dd>ls)dd=ls-t;
@@ -4459,7 +4570,6 @@ function rebuildPeople3(){
   disposeGrp(t3Groups.person);
   t3People=[];
   document.getElementById('sim3d-people-list').innerHTML='';
-  // 椅子への自動スポーンは廃止し、「人物スポーン」を配置した場所だけから湧く
   const activeSeats = t3SpawnPoints.map(sp=>{
     let bestChair=null, bestD=0.65;
     for(const c of t3Seats){
