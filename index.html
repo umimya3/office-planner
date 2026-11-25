@@ -2223,6 +2223,24 @@ async function loadExternalStartup(){
   return false;
 }
 
+const STATIC_TEMPLATE_DEFAULTS = [
+  {
+    "file": "608.json",
+    "name": "10人オフィス案",
+    "desc": "8.24m × 5.70m ／ 執務島・会議・OA"
+  },
+  {
+    "file": "539.json",
+    "name": "更衣室レイアウト",
+    "desc": "3.0m × 6.0m ／ ロッカー"
+  },
+  {
+    "file": "420.json",
+    "name": "倉庫レイアウト",
+    "desc": "3.0m × 6.0m ／ ロッカー"
+  }
+];
+
 async function refreshTemplateList(){
   const sec = document.getElementById('tpl-section');
   const sel = document.getElementById('tpl-select');
@@ -2230,303 +2248,50 @@ async function refreshTemplateList(){
   const btn = document.getElementById('tpl-load-btn');
   if(!sec || !sel) return;
   sec.style.display = 'block';
-  sel.innerHTML = '<option value="">読み込み中...</option>';
-  if(btn) btn.disabled = true;
+
+  let list = null;
+  let errorMsg = '';
+
+  // 1. fetch を試みる（GitHub Pages / ローカルWebサーバー時）
   try{
     const res = await fetch('./layouts/index.json?t=' + Date.now());
-    if(!res.ok) throw new Error('HTTP ' + res.status);
-    const raw = await res.text();
-    const list = JSON.parse(raw.replace(/^\uFEFF/, ''));
-    if(!Array.isArray(list) || !list.length) throw new Error('項目が空です');
-    sel.innerHTML = '';
-    list.forEach(it => {
-      if(!it || !it.file) return;
-      const opt = document.createElement('option');
-      opt.value = it.file;
-      opt.textContent = it.name || it.file;
-      opt.dataset.desc = it.desc || '';
-      sel.appendChild(opt);
-    });
-    if(!sel.options.length) throw new Error('有効な項目がありません');
-    const updDesc = () => {
-      const o = sel.options[sel.selectedIndex];
-      if(desc) desc.textContent = (o && o.dataset.desc) ? o.dataset.desc : '';
-    };
-    sel.onchange = updDesc;
-    updDesc();
-    if(btn) btn.disabled = false;
-  }catch(e){
-    sel.innerHTML = '<option value="">（テンプレートを読めませんでした）</option>';
-    if(desc) desc.textContent = '理由: ' + e.message + '（GitHub Pages上の ./layouts/index.json を確認）';
-    if(btn) btn.disabled = true;
-  }
-}
-
- 
-/* ═══════════════════════════════════════════════════════════════
-   LOCALSTORAGE - fixed
-   ═══════════════════════════════════════════════════════════════ */
-let autosaveFailed=false;
-function saveLS(){
-  const el=document.getElementById('sb-save');
-  try{
-    const json=JSON.stringify(getState());
-    localStorage.setItem(LS_KEY, json);
-    if(autosaveFailed){ autosaveFailed=false; showToast('自動保存が回復しました'); }
-    el.style.color='';
-    el.textContent='ブラウザに自動保存済 '+new Date().toLocaleTimeString('ja-JP');
-    return true;
-  }catch(ex){
-    console.info('LS save fail',ex);
-    el.style.color='var(--warn)';
-    el.textContent='⚠ 自動保存に失敗しました（容量不足など）。「保存」でJSONに書き出してください';
-    if(!autosaveFailed){ autosaveFailed=true; showToast('自動保存に失敗しました。「📤 保存」でJSONファイルに書き出してください。',5000); }
-    return false;
-  }
-}
-(function(){ const el=document.getElementById('sb-save'); if(el) el.title='ブラウザへの自動保存の状態です（スロットへの保存とは別です）'; })();
-function loadLS(){
-  let raw=null;
-  try{ raw=localStorage.getItem(LS_KEY); }catch(ex){ console.info('LS access fail',ex); return false; }
-  if(!raw) return false;
-  try{
-    // 「保存データを読み込まずに起動」が要求されたときは、前回のデータを退避して空で起動する
-    if(typeof window._opSafeBootRequested==='function' && window._opSafeBootRequested()){
-      if(typeof window._opStashCorrupt==='function'){ window._opStashCorrupt(raw,'保存データを読み込まずに起動しました'); if(window._opBootNotice) window._opBootNotice.kind='safe'; }
-      return false;
-    }
-    const state=jsonToState(raw);
-    let ok=false, reason='';
-    if(!state) reason='JSONとして読み取れませんでした';
-    else { ok=applyState(state); if(!ok) reason=applyState.lastError||'形式が正しくありません'; }
-    // 読み込めなかったデータは、次の自動保存で上書きされる前に退避する
-    if(!ok && typeof window._opStashCorrupt==='function') window._opStashCorrupt(raw,reason);
-    return ok;
-  }catch(ex){ console.info('LS load fail',ex); return false; }
-}
-function loadHash(){
-  const h=location.hash.replace('#','');
-  if(!h) return false;
-  const state=b64ToState(h);
-  return state ? applyState(state) : false;
-}
-function scheduleSave(){
-  opEnsureMargin(); updateOutsideInfo();      // 外へ出した物が隠れないよう余白を自動で広げる
-  document.getElementById('sb-save').textContent='保存中…';
-  if(saveTimer) clearTimeout(saveTimer);
-  saveTimer=setTimeout(saveLS,500);
-}
- 
-/* ═══════════════════════════════════════════════════════════════
-   HEADER BUTTONS
-   ═══════════════════════════════════════════════════════════════ */
-// Theme Toggle
-document.getElementById('btn-theme').onclick=()=>{
-  const order=['auto','light','dark'];
-  const next=order[(order.indexOf(window._opThemeMode())+1)%order.length];
-  window._opApplyTheme(next,true);
-  showToast({auto:'テーマ: 自動（端末の設定に合わせる）',light:'テーマ: ライト',dark:'テーマ: ダーク'}[next]);
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   画像保存（高解像度PNG）
-   画面をスクリーンショットするのではなく、同じ描画処理を指定の細かさで描き直す。
-   ═══════════════════════════════════════════════════════════════ */
-const IE_KEY = 'op_imgexp_v1';
-const IE_TARGET = { std: 2400, high: 4800, max: 9000 };   // 長辺のpx（上限は端末に合わせて自動で下げる）
-const IE_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
-const IE_MAX_PIXELS = IE_IOS ? 16e6 : 50e6, IE_MAX_SIDE = 16000;
-
-function ieRegion(area, S){
-  const vis = lid => (typeof isLayerVisible==='function') ? isLayerVisible(lid) : true;
-  let b;
-  if(area==='room'){ b={x0:-0.3,y0:-0.3,x1:roomW+0.3,y1:roomH+0.3}; }
-  else if(area==='work'){ b={x0:-workMargin,y0:-workMargin,x1:roomW+workMargin,y1:roomH+workMargin}; }
-  else {
-    const list=[{x0:0,y0:0,x1:roomW,y1:roomH}];
-    for(const o of objects){ if(vis(o.layerId||1)) list.push(objBounds(o)); }
-    for(const l of lines){ if(vis(l.layerId||5)) list.push({x0:Math.min(l.x1,l.x2),y0:Math.min(l.y1,l.y2),x1:Math.max(l.x1,l.x2),y1:Math.max(l.y1,l.y2)}); }
-    b=clampToWork(unionBounds(list));
-    b={x0:Math.max(-workMargin,b.x0-0.4),y0:Math.max(-workMargin,b.y0-0.4),x1:Math.min(roomW+workMargin,b.x1+0.4),y1:Math.min(roomH+workMargin,b.y1+0.4)};
-  }
-  const org=workMargin*S, fullW=Math.round((roomW+2*workMargin)*S), fullH=Math.round((roomH+2*workMargin)*S);
-  const ox=Math.max(0,Math.floor(org+b.x0*S)), oy=Math.max(0,Math.floor(org+b.y0*S));
-  const cw=Math.max(8,Math.min(fullW,Math.ceil(org+b.x1*S))-ox), ch=Math.max(8,Math.min(fullH,Math.ceil(org+b.y1*S))-oy);
-  return {ox,oy,cw,ch,fullW,fullH};
-}
-function iePlan(area, q){
-  const S=Math.max(scale,BASE_SCALE), r=ieRegion(area,S);
-  let pr=Math.max(1, IE_TARGET[q]/Math.max(r.cw,r.ch));
-  pr=Math.min(pr, IE_MAX_SIDE/Math.max(r.cw,r.ch), Math.sqrt(IE_MAX_PIXELS/(r.cw*r.ch)));
-  return {S, r, pr, outW:Math.round(r.cw*pr), outH:Math.round(r.ch*pr)};
-}
-function ieUpdateInfo(){
-  const p=iePlan(document.getElementById('ie-area').value, document.getElementById('ie-q').value);
-  const want=IE_TARGET[document.getElementById('ie-q').value];
-  const capped=Math.max(p.outW,p.outH) < want*0.98;
-  document.getElementById('ie-info').textContent='出力サイズ: '+p.outW+' × '+p.outH+' px'+(capped?'（端末の上限のため、これ以上は大きくできません）':'');
-}
-function ieSave(){
-  const o={area:document.getElementById('ie-area').value,q:document.getElementById('ie-q').value,theme:document.getElementById('ie-theme').value};
-  try{ localStorage.setItem(IE_KEY,JSON.stringify(o)); }catch(e){}
-  return o;
-}
-function opExportImage(o){
-  const p=iePlan(o.area,o.q), r=p.r;
-  const bodyLight=document.body.classList.contains('light-mode');
-  const keep={scale:scale, mono:viewMono, printing:opPrinting, sel:[...selectedIds], lsel:[...selectedLineIds]};
-  const sc=scroller(), sl=sc.scrollLeft, st=sc.scrollTop;
-  let ok=false;
-  try{
-    scale=p.S; opPrinting=true;
-    selectedIds.clear(); selectedLineIds.clear();
-    if(o.theme==='light'){ viewMono=false; document.body.classList.add('light-mode'); }
-    else if(o.theme==='mono'){ viewMono=true; document.body.classList.add('light-mode'); }
-    canvas.width=Math.round(r.cw*p.pr); canvas.height=Math.round(r.ch*p.pr);
-    window._opExp={pr:p.pr, ox:r.ox, oy:r.oy, W:r.fullW, H:r.fullH};
-    draw();
-    const d=new Date(), z=n=>(n<10?'0':'')+n;
-    const name='office-plan-'+d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'-'+z(d.getHours())+z(d.getMinutes())+'.png';
-    canvas.toBlob(blob=>{        // toBlob は呼んだ時点の絵を使うので、すぐ下で画面を元に戻してよい
-      if(!blob){ showError('画像を作れませんでした。解像度を下げて、もう一度お試しください。'); return; }
-      const u=URL.createObjectURL(blob), a=document.createElement('a');
-      a.href=u; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(()=>URL.revokeObjectURL(u),3000);
-      showToast('🖼 保存しました（'+p.outW+'×'+p.outH+' px）');
-    },'image/png');
-    ok=true;
-  }catch(e){
-    showError('画像の保存に失敗しました: '+e.message);
-  }finally{
-    window._opExp=null; scale=keep.scale; viewMono=keep.mono; opPrinting=keep.printing;
-    document.body.classList.toggle('light-mode',bodyLight);
-    keep.sel.forEach(v=>selectedIds.add(v)); keep.lsel.forEach(v=>selectedLineIds.add(v));
-    resizeCanvas();
-    sc.scrollLeft=sl; sc.scrollTop=st;
-  }
-  return ok;
-}
-document.getElementById('btn-imgexp').onclick=()=>{
-  try{ const s=JSON.parse(localStorage.getItem(IE_KEY)||'null');
-    if(s){ if(s.area) document.getElementById('ie-area').value=s.area; if(s.q) document.getElementById('ie-q').value=s.q; if(s.theme) document.getElementById('ie-theme').value=s.theme; } }catch(e){}
-  ieUpdateInfo(); showModal('modal-imgexp');
-};
-['ie-area','ie-q','ie-theme'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{ ieUpdateInfo(); ieSave(); }));
-document.getElementById('ie-cancel').onclick=()=>hideModal('modal-imgexp');
-document.getElementById('ie-ok').onclick=()=>{ const o=ieSave(); hideModal('modal-imgexp'); setTimeout(()=>opExportImage(o),30); };
-
-// Print
-const _bPrint=document.getElementById('btn-print'); if(_bPrint) _bPrint.onclick=()=>{
-  const wasLight = document.body.classList.contains('light-mode');
-  if(!wasLight) document.body.classList.add('light-mode');
-  draw();
-  // draw()のcanvas反映をブラウザが完了してからprintを呼ぶ
-  requestAnimationFrame(()=>{
-    setTimeout(()=>{
-      window.print();
-      // 印刷ダイアログを閉じた後にテーマを戻す
-      if(!wasLight){
-        document.body.classList.remove('light-mode');
-        draw();
-      }
-    }, 100);
-  });
-};
-
-// Share
-const _bShare=document.getElementById('btn-share');
-if(_bShare) _bShare.onclick=async ()=>{
-  const ta=document.getElementById('share-url');
-  const infoEl=document.getElementById('share-len-info');
-  ta.value='共有URLを生成中...';
-  showModal('modal-share');
-  try{
-    const hash=await encodeShareHash(getState());
-    const base=location.href.split('#')[0].split('?')[0];
-    const url=base+'#'+hash;
-    ta.value=url;
-    if(infoEl) infoEl.textContent='URLの長さ: '+url.length.toLocaleString()+' 文字（gzip圧縮済み）';
-  }catch(ex){
-    ta.value='';
-    showError('共有URLの作成に失敗しました: '+ex.message);
-  }
-};
-document.getElementById('ms-close').onclick=()=>hideModal('modal-share');
-document.getElementById('ms-copy').onclick=()=>{
-  const ta=document.getElementById('share-url');
-  ta.select();
-  try{ navigator.clipboard.writeText(ta.value).then(()=>showToast('URLをコピーしました！')); }
-  catch{ try{ document.execCommand('copy'); showToast('URLをコピーしました！'); }catch(ex){ showToast('手動でコピーしてください'); } }
-};
- 
-// Export (JSON download)
-document.getElementById('btn-export').onclick=()=>{
-  try{
-    const json=stateToJSON();
-    const blob=new Blob([json],{type:'application/json;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;
-    a.download='office_layout_'+new Date().toISOString().slice(0,10)+'.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    showToast('JSONファイルを保存しました');
-  }catch(ex){ showError('保存に失敗しました: '+ex.message); }
-};
- 
-// Import
-const btnImport = document.getElementById('btn-import');
-const miFileBtn = document.getElementById('mi-file-btn');
-const miFileInput = document.getElementById('mi-file-input');
-
-btnImport.onclick=()=>{
-  document.getElementById('import-data').value='';
-  showModal('modal-import');
-};
-
-miFileBtn.onclick=()=>miFileInput.click();
-
-miFileInput.onchange=(e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  if(file.size>5*1024*1024){ showError('ファイルが大きすぎます（'+(file.size/1048576).toFixed(1)+'MB / 上限5MB）。\n現在の作業内容はそのまま残っています。'); miFileInput.value=''; return; }
-  const reader = new FileReader();
-  reader.onload=(ev)=>{
-    const state = jsonToState(ev.target.result);
-    if(state && opWithBackup('ファイル読込前',()=>applyState(state))){
-      opReleaseSlot();
-      saveLS();
-      hideModal('modal-import');
-      showToast('ファイルから読み込みました（スロットとの関連付けは解除しました）',3500);
-      miFileInput.value = '';
+    if(res.ok){
+      const raw = await res.text();
+      list = JSON.parse(raw.replace(/^\uFEFF/, ''));
     } else {
-      showError(state
-        ? 'ファイルを読み込めませんでした。\n理由: '+(applyState.lastError||'不明')+'\n（現在の作業内容はそのまま残っています）'
-        : 'ファイルの解析に失敗しました。JSONとして読み取れません。\n（現在の作業内容はそのまま残っています）');
-      miFileInput.value = '';
+      errorMsg = 'layouts/index.json 取得失敗 (HTTP ' + res.status + ')';
     }
-  };
-  reader.readAsText(file);
-};
-
-document.getElementById('mi-cancel').onclick=()=>hideModal('modal-import');
-document.getElementById('mi-ok').onclick=async ()=>{
-  const raw=document.getElementById('import-data').value.trim();
-  if(!raw){ showToast('データを入力してください'); return; }
-  let state=jsonToState(raw);
-  if(!state){ try{ state=await decodeShareHash(raw); }catch(ex){} }
-  if(state && opWithBackup('貼り付け読込前',()=>applyState(state))){
-    opReleaseSlot(); saveLS(); hideModal('modal-import');
-    showToast('読み込みました（スロットとの関連付けは解除しました）',3500);
-  } else {
-    showError(state
-      ? 'データを読み込めませんでした。\n理由: '+(applyState.lastError||'不明')+'\n（現在の作業内容はそのまま残っています）'
-      : 'データの解析に失敗しました。\n共有URL または JSONファイルの内容を貼り付けてください。');
+  }catch(e){
+    errorMsg = 'ローカル直開き制限(CORS)のため内部プリセットを使用';
   }
-};
- 
+
+  // 2. 失敗時はフォールバック一覧を採用
+  if(!Array.isArray(list) || !list.length){
+    list = STATIC_TEMPLATE_DEFAULTS;
+  }
+
+  sel.innerHTML = '';
+  list.forEach(it => {
+    if(!it || !it.file) return;
+    const opt = document.createElement('option');
+    opt.value = it.file;
+    opt.textContent = it.name || it.file;
+    opt.dataset.desc = it.desc || '';
+    sel.appendChild(opt);
+  });
+
+  const updDesc = () => {
+    const o = sel.options[sel.selectedIndex];
+    let d = (o && o.dataset.desc) ? o.dataset.desc : '';
+    if(errorMsg && location.protocol === 'file:') d += '（※オフライン既定値）';
+    if(desc) desc.textContent = d;
+  };
+  sel.onchange = updDesc;
+  updDesc();
+  if(btn) btn.disabled = (sel.options.length === 0);
+}
+
+
 // Clear
 document.getElementById('btn-clear').onclick=()=>showModal('modal-clear');
 document.getElementById('mc-cancel').onclick=()=>hideModal('modal-clear');
