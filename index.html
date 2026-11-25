@@ -667,7 +667,7 @@ input[type=range].lp-range { flex: 1; accent-color: var(--accent); }
   <div class="modal">
     <h3>📥 データ読み込み</h3>
     <p>保存したJSONファイルを選択するか、共有URLを貼り付けてください。</p>
-    <div id="tpl-section" style="display:none; margin-bottom:12px; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px;">
+    <div id="tpl-section" style="margin-bottom:12px; padding:10px; background:var(--surface2); border:1px solid var(--border); border-radius:6px;">
       <div style="font-size:11px; font-weight:bold; color:var(--accent); margin-bottom:6px;">📚 テンプレート / サンプルから読込</div>
       <div style="display:flex; gap:6px;">
         <select id="tpl-select" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); color:var(--text); border-radius:5px; padding:5px 8px; font-size:12px;"></select>
@@ -2227,12 +2227,17 @@ async function refreshTemplateList(){
   const sec = document.getElementById('tpl-section');
   const sel = document.getElementById('tpl-select');
   const desc = document.getElementById('tpl-desc');
+  const btn = document.getElementById('tpl-load-btn');
   if(!sec || !sel) return;
+  sec.style.display = 'block';
+  sel.innerHTML = '<option value="">読み込み中...</option>';
+  if(btn) btn.disabled = true;
   try{
     const res = await fetch('./layouts/index.json?t=' + Date.now());
     if(!res.ok) throw new Error('HTTP ' + res.status);
-    const list = await res.json();
-    if(!Array.isArray(list) || !list.length) throw new Error('empty');
+    const raw = await res.text();
+    const list = JSON.parse(raw.replace(/^\uFEFF/, ''));
+    if(!Array.isArray(list) || !list.length) throw new Error('項目が空です');
     sel.innerHTML = '';
     list.forEach(it => {
       if(!it || !it.file) return;
@@ -2242,16 +2247,18 @@ async function refreshTemplateList(){
       opt.dataset.desc = it.desc || '';
       sel.appendChild(opt);
     });
-    if(!sel.options.length) throw new Error('no options');
+    if(!sel.options.length) throw new Error('有効な項目がありません');
     const updDesc = () => {
       const o = sel.options[sel.selectedIndex];
       if(desc) desc.textContent = (o && o.dataset.desc) ? o.dataset.desc : '';
     };
     sel.onchange = updDesc;
     updDesc();
-    sec.style.display = 'block';
+    if(btn) btn.disabled = false;
   }catch(e){
-    sec.style.display = 'none';
+    sel.innerHTML = '<option value="">（テンプレートを読めませんでした）</option>';
+    if(desc) desc.textContent = '理由: ' + e.message + '（GitHub Pages上の ./layouts/index.json を確認）';
+    if(btn) btn.disabled = true;
   }
 }
 
@@ -5022,7 +5029,7 @@ window.get3DRefs = function(){
 (function(){
 'use strict';
 
-const APP_VERSION   = 'v1.13.1';
+const APP_VERSION   = 'v1.13.2';
 const APP_UPDATED   = '2026-11-25';
 window._opAppInfo = {version:APP_VERSION, updated:APP_UPDATED};
 const SLOTS_KEY     = 'op_slots_v1';
