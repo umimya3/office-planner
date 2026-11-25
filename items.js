@@ -38,6 +38,8 @@ const FURN_DEFS = [
   {cat:'収納',name:'袖机',w:0.4,h:0.55,color:'#a070c4',icon:'🗄'},
   {cat:'収納',name:'ワゴン',w:0.4,h:0.5,color:'#8858b0',icon:'🗄'},
   {cat:'収納',name:'シューズBOX',w:0.6,h:0.35,color:'#7048a0',icon:'📦'},
+  {cat:'収納',name:'個人ロッカー(小)',w:0.35,h:0.35,color:'#e5decb',icon:'🗄'},
+  
   // OA機器
   {cat:'OA',name:'コピー機',w:0.65,h:0.7,color:'#e8c55a',icon:'🖨'},
   {cat:'OA',name:'シュレッダー',w:0.35,h:0.4,color:'#d4a840',icon:'📄'},
@@ -46,15 +48,26 @@ const FURN_DEFS = [
   {cat:'OA',name:'モニター',w:0.5,h:0.1,color:'#d4b040',icon:'🖥'},
   {cat:'OA',name:'電話機',w:0.2,h:0.2,color:'#e0c060',icon:'📞'},
   // その他
-  {cat:'その他',name:'観葉植物 大',w:0.5,h:0.5,color:'#4caf7d',icon:'🌿',round:true},
-  {cat:'その他',name:'観葉植物 小',w:0.3,h:0.3,color:'#4caf7d',icon:'🌿',round:true},
+  
+  
+  {cat:'その他',name:'ゴミ箱',w:0.3,h:0.3,color:'#888',icon:'🗑',round:true},
+  {cat:'その他',name:'ゴミ箱 45L(蓋つき)',w:0.32,h:0.42,color:'#7c858e',icon:'🗑'},
+  {cat:'その他',name:'ゴミ箱 90L(蓋なし)',w:0.42,h:0.55,color:'#606972',icon:'🗑'},
+  {cat:'その他',name:'電気ポット',w:0.22,h:0.28,color:'#e6dfd0',icon:'🫖'},
+
   {cat:'その他',name:'コーヒーメーカー',w:0.3,h:0.3,color:'#6ec6ca',icon:'☕'},
   {cat:'その他',name:'冷蔵庫',w:0.6,h:0.65,color:'#50aab5',icon:'🧊'},
   {cat:'その他',name:'電子レンジ',w:0.5,h:0.4,color:'#5abac5',icon:'🍱'},
-  {cat:'その他',name:'ゴミ箱',w:0.3,h:0.3,color:'#888',icon:'🗑',round:true},
+
   {cat:'その他',name:'傘立て',w:0.25,h:0.25,color:'#70a0b0',icon:'☂',round:true},
   {cat:'その他',name:'時計',w:0.3,h:0.3,color:'#a0a0c0',icon:'🕐',round:true},
   {cat:'その他',name:'消火器',w:0.2,h:0.2,color:'#e05050',icon:'🧯',round:true},
+
+  {cat:'その他',name:'観葉植物 大',w:0.5,h:0.5,color:'#4caf7d',icon:'🌿',round:true},
+  {cat:'その他',name:'観葉植物 小',w:0.3,h:0.3,color:'#4caf7d',icon:'🌿',round:true},
+
+  {cat:'その他',name:'人物スポーン',w:0.5,h:0.5,color:'#ff9800',icon:'👤',round:true,isSpawn:true},
+
 ];
 
 // ── 構造 ──
