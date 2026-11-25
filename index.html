@@ -978,6 +978,17 @@ function drawObject(obj){
   const fillC = (a)=> mono ? (a<=0.4 ? 'rgb(244,244,244)' : monoF) : hexA(color,a);
   const edgeC = (a)=> mono ? '#111' : hexA(color,a);
  
+  if(obj.isSpawn||/人物スポーン/.test(obj.defName||'')){
+    ctx.setLineDash([4,3]); ctx.strokeStyle='#ff9800'; ctx.lineWidth=2;
+    ctx.fillStyle='rgba(255,152,0,0.18)';
+    ctx.beginPath(); ctx.ellipse(0,0,pw/2,ph/2,0,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=isLight?'#b45309':'#ffb74d';
+    ctx.font=`bold ${Math.max(10,Math.min(pw,ph)*0.48)}px sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('👤',0,1);
+    ctx.shadowBlur=0; ctx.restore(); return;
+  }
   // Special door arc
   if(obj.doorArc){
     ctx.strokeStyle=edgeC(.9); ctx.lineWidth=2;
@@ -2028,6 +2039,7 @@ function validateState(raw){
       color:_col(o.color,'#4a90d9'),
       round:!!o.round,isWindow:!!o.isWindow,isDoor:!!o.isDoor,doorArc:!!o.doorArc,isStair:!!o.isStair};
     if(o.isComment) c.isComment=true;
+    if(o.isSpawn) c.isSpawn=true;
     if(typeof o.name==='string') c.name=o.name.slice(0,80);
     if(typeof o.icon==='string') c.icon=o.icon.slice(0,8);
     if(typeof o.itemId==='string' && o.itemId.trim()) c.itemId=o.itemId.trim().slice(0,40);
@@ -2464,18 +2476,19 @@ try{
 
 // ── LAYER SYSTEM ─────────────────────────────────────────────
 const DEFAULT_LAYERS = [
-  {id:1, name:'家具',    color:'#4a90d9', visible:true},
-  {id:2, name:'構造',    color:'#8899bb', visible:true},
-  {id:3, name:'電気配線', color:'#ffcc00', visible:true},
-  {id:4, name:'LAN',     color:'#4488ff', visible:true},
-  {id:5, name:'その他',  color:'#9da3c8', visible:true},
+  {id:1, name:'家具',         color:'#4a90d9', visible:true},
+  {id:2, name:'構造',         color:'#8899bb', visible:true},
+  {id:3, name:'電気配線',     color:'#ffcc00', visible:true},
+  {id:4, name:'LAN',          color:'#4488ff', visible:true},
+  {id:5, name:'その他',       color:'#9da3c8', visible:true},
+  {id:6, name:'人物スポーン', color:'#ff9800', visible:true},
 ];
 // IIFEの外からも参照できるよう公開
 window._opDefaultLayers = DEFAULT_LAYERS;
 let layers = JSON.parse(JSON.stringify(DEFAULT_LAYERS));
 let activeLayerId = 1;
   Object.defineProperty(window,'_activeLayerId2',{get:()=>activeLayerId,set:(v)=>{activeLayerId=v;},configurable:true});
-let nextLayerId = 6;
+let nextLayerId = 7;
 
 function getActiveLayer(){ return layers.find(l=>l.id===activeLayerId)||layers[0]; }
 
@@ -3533,7 +3546,8 @@ function placeObject(def){
     doorArc:  !!def.doorArc,
     isStair:  !!def.isStair,
     isComment:!!def.isComment,
-    layerId:(def.isDoor||def.isWindow||def.isStair) ? 2 : (window._activeLayerId2||activeLayerId||1)
+    isSpawn:  !!def.isSpawn,
+    layerId:(def.isSpawn||/人物スポーン/.test(def.name||'')) ? (window._opSpawnLayerId||6) : ((def.isDoor||def.isWindow||def.isStair) ? 2 : (window._activeLayerId2||activeLayerId||1))
   };
   objects.push(obj);
   selectedIds.clear(); selectedIds.add(obj.id);
@@ -4146,7 +4160,25 @@ function ptOnPath3(path,frac){
   const n=path.length-1;
   return{x:path[n].x,z:path[n].z,angle:Math.atan2(path[n].x-path[n-1].x,path[n].z-path[n-1].z)};
 }
-function buildSchedule3(person,seatPos,rng){ const meta=TACTICS3[person.role]; const segs=[]; let t=0,pos=seatPos; const ls=190+(person.idx%9)*13+rng()*12, ld=40+rng()*15; function pw(to){if(t>=540)return;const p=buildPath3(pos,to);const dur=Math.max(0.4,pathLen3(p)/WALK_SPEED3);const t1=Math.min(540,t+dur);segs.push({type:'walk',path:p,t0:t,t1});t=t1;pos=to;} function ps(state,at,dur){if(t>=540||dur<=0)return;const t1=Math.min(540,t+dur);segs.push({type:'stat',state,pos:at,t0:t,t1});t=t1;pos=at;} while(t<540){let dd=meta.deskMin+rng()*(meta.deskMax-meta.deskMin); if(t<ls&&t+dd>ls)dd=ls-t; if(dd>0.3){if(Math.abs(pos.x-seatPos.x)>.01||Math.abs(pos.z-seatPos.z)>.01)pw(seatPos);ps('DESK',seatPos,dd);} if(t>=540)break; if(Math.abs(t-ls)<.8&&ls<540){pw(t3Target.door);ps('OUT',t3Target.door,ld);pw(seatPos);continue;} if(t>=540)break; const ch=weightedPick3(rng,meta.excursions);const dur2=ch.min+rng()*(ch.max-ch.min);const tg=t3Target[ch.name]||seatPos;pw(tg);ps(ch.name.toUpperCase(),tg,dur2);} return segs; }
+function buildSchedule3(person,seatPos,rng){
+  const meta=TACTICS3[person.role]; const segs=[]; let t=0,pos=seatPos;
+  const ls=190+(person.idx%9)*13+rng()*12, ld=40+rng()*15;
+  function pw(to){if(t>=540)return;const p=buildPath3(pos,to);const dur=Math.max(0.4,pathLen3(p)/WALK_SPEED3);const t1=Math.min(540,t+dur);segs.push({type:'walk',path:p,t0:t,t1});t=t1;pos=to;}
+  function ps(state,at,dur){if(t>=540||dur<=0)return;const t1=Math.min(540,t+dur);segs.push({type:'stat',state,pos:at,t0:t,t1});t=t1;pos=at;}
+  let first=true;
+  while(t<540){
+    // 開始直後は人ごとに3〜20分ほどで動き出し、開いてすぐ歩行が見えるようにする
+    let dd=first?(3+(person.idx%7)*2.5+rng()*3):(meta.deskMin+rng()*(meta.deskMax-meta.deskMin));
+    first=false;
+    if(t<ls&&t+dd>ls)dd=ls-t;
+    if(dd>0.3){if(Math.abs(pos.x-seatPos.x)>.01||Math.abs(pos.z-seatPos.z)>.01)pw(seatPos);ps('DESK',seatPos,dd);}
+    if(t>=540)break;
+    if(Math.abs(t-ls)<.8&&ls<540){pw(t3Target.door);ps('OUT',t3Target.door,ld);pw(seatPos);continue;}
+    if(t>=540)break;
+    const ch=weightedPick3(rng,meta.excursions);const dur2=ch.min+rng()*(ch.max-ch.min);const tg=t3Target[ch.name]||seatPos;pw(tg);ps(ch.name.toUpperCase(),tg,dur2);
+  }
+  return segs;
+}
 function sampleSched3(segs,min){
   for(const s of segs){
     if(min>=s.t0&&min<=s.t1){
@@ -4160,16 +4192,14 @@ function sampleSched3(segs,min){
   return l?{pos:l.pos||l.path[l.path.length-1],state:'DESK',moving:false,angle:null}:{pos:{x:0,z:0},state:'DESK',moving:false,angle:null};
 }
 
-function sampleSched3(segs,min){ for(const s of segs){if(min>=s.t0&&min<=s.t1){if(s.type==='stat')return{pos:s.pos,state:s.state,moving:false};const f=s.t1>s.t0?(min-s.t0)/(s.t1-s.t0):0;return{pos:ptOnPath3(s.path,f),state:'WALK',moving:true};}} const l=segs[segs.length-1];return l?{pos:l.pos||l.path[l.path.length-1],state:'DESK',moving:false}:{pos:{x:0,z:0},state:'DESK',moving:false}; }
-
-// 3D KEYWORD RULES (same as standalone)
-const ROOM_WALL_H3 = 2.4;   // 室内の壁の高さ（m）。部屋の外周の壁と、置いた「壁」オブジェクトで共通
+// 3D KEYWORD RULES
+const ROOM_WALL_H3 = 2.4;
 const KW3=[
   [/デスクマット/,{height:0.01,kind:'solid'}],
   [/モニター台|モニタースタンド/,{height:0.10,kind:'solid'}],
   [/デスク|机|作業机/,{height:0.72,kind:'solid'}],
   [/会議テーブル|ミーティング/,{height:0.72,kind:'solid'}],
-  [/作業台|カウンター/,{height:0.85,kind:'solid'}],
+  [/作業台|カウンター|給湯室|キッチン/,{height:0.85,kind:'solid'}],
   [/チェア|椅子|スツール/,{height:0.46,kind:'chair'}],
   [/ロッカー|書庫|本棚|シェルフ/,{height:1.8,kind:'solid'}],
   [/キャビネット|収納/,{height:1.0,kind:'solid'}],
@@ -4188,17 +4218,21 @@ const KW3=[
   [/パーティション|間仕切り/,{height:1.4,kind:'solid'}],
   [/サーバー|ラック/,{height:1.6,kind:'solid'}],
   [/ソファ/,{height:0.4,kind:'solid'}],
-  [/ゴミ箱/,{height:0.55,kind:'solid'}],
+  [/ゴミ箱|リサイクルBOX/,{height:0.55,kind:'solid'}],
+  [/消火器/,{height:0.52,kind:'solid'}],
+  [/傘立て/,{height:0.55,kind:'solid'}],
+  [/観葉植物/,{height:1.0,kind:'solid'}],
   [/テーブル|台/,{height:0.72,kind:'solid'}],
 ];
 function objSpec3(o){
+  const txt=(o.defName||'')+(o.name||'')+(o.label||'');
+  if(o.isSpawn||/人物スポーン|スポナー/.test(txt)) return{height:0.02,elevation:0,kind:'spawn',guessed:false};
   if(o.isDoor) return{height:2.0,elevation:0,kind:'door',guessed:false};
   if(o.isWindow) return{height:1.2,elevation:0.9,kind:'window',guessed:false};
   if(o.isStair) return{height:0.03,elevation:0,kind:'stair',guessed:false};
   if(o.isComment) return{height:0.02,elevation:1.55,kind:'comment',guessed:false};
   if(o.layerId===3||/コンセント/i.test(o.defName||'')) return{height:0.12,elevation:0.28,kind:'outlet',guessed:false};
-  if(/^壁/.test((o.defName||o.name||'').trim())) return{height:ROOM_WALL_H3,elevation:0,kind:'wall',guessed:false};   // 壁(横)・壁(縦): 白・室内と同じ高さ
-  const txt=(o.defName||'')+(o.name||'')+(o.label||'');
+  if(/^壁/.test((o.defName||o.name||'').trim())) return{height:ROOM_WALL_H3,elevation:0,kind:'wall',guessed:false};
   if(/ホワイトボード|掲示板/.test(txt)&&!/更衣|スペース/.test(txt)){
     if((o.w||0)>1.4||(o.h||0)>1.4)return{height:0.02,elevation:0,kind:'zone',guessed:false};
     return{height:0.9,elevation:1.0,kind:'board',guessed:false};
@@ -4206,16 +4240,13 @@ function objSpec3(o){
   if(/更衣|スペース|エリア/.test(txt)&&((o.w||0)>1.2||(o.h||0)>1.2))return{height:0.02,elevation:0,kind:'zone',guessed:false};
   for(const[re,sp]of KW3){if(re.test(txt))return{...sp,elevation:0,guessed:false};}
   const area=(o.w||0.4)*(o.h||0.4);
-  return{height:area<0.12?0.4:area<0.5?0.72:0.85,elevation:0,kind:(o.round?'chair':'solid'),guessed:true};
+  return{height:area<0.12?0.4:area<0.5?0.72:0.85,elevation:0,kind:'solid',guessed:true};
 }
 
-/* ── 3Dモデル(GLB)での表示 ─────────────────────────────────
-   対応表は models.js。置いた物の「幅×奥行」にモデルを合わせ、高さはモデルの実寸のまま使う。
-   対応が無い物・読み込めなかった物は、従来どおり箱で表示する。 */
-const t3ModelCache=new Map();   // ファイル名 → {state:'loading'|'ready'|'failed', tpl, sx,sy,sz, cx,cz, minY}
+const t3ModelCache=new Map();
 let t3ModelTimer=null, t3ModelWarned=false;
-window._opModelCache=t3ModelCache;   // 動作確認用
-window._opT3=()=>({groups:t3Groups,scene:t3Scene});   // 動作確認用
+window._opModelCache=t3ModelCache;
+window._opT3=()=>({groups:t3Groups,scene:t3Scene});
 function opModelRule(o){
   const defs=window.OP_MODELS; if(!defs||!defs.rules) return null;
   const nm=(o.defName||o.name||'').trim();
@@ -4232,7 +4263,6 @@ function opModelEntry(file){
     new THREE.GLTFLoader().load(((window.OP_MODELS&&window.OP_MODELS.base)||'models/')+file, gltf=>{
       const tpl=gltf.scene, b=new THREE.Box3().setFromObject(tpl), s=new THREE.Vector3(), c=new THREE.Vector3();
       b.getSize(s); b.getCenter(c);
-      // このアプリの3D画面は色の補正（sRGB出力）なしで描いているので、モデルの色もそれに合わせて、暗くなりすぎないようにする
       const seen=new Set();
       tpl.traverse(n=>{ if(!n.isMesh) return; (Array.isArray(n.material)?n.material:[n.material]).forEach(m=>{
         if(!m||seen.has(m)) return; seen.add(m);
@@ -4252,12 +4282,12 @@ function opModelEntry(file){
 function opMakeModel(e,rule,o){
   const n=Math.max(1,(rule.repeatX|0)||1), w=o.w/n, d=Math.max(o.h,.05), root=new THREE.Group();
   for(let i=0;i<n;i++){
-    const inner=e.tpl.clone(true); inner.position.set(-e.cx,-e.minY,-e.cz);     // 足元の中央を原点にそろえる
+    const inner=e.tpl.clone(true); inner.position.set(-e.cx,-e.minY,-e.cz);
     const holder=new THREE.Group(); holder.add(inner);
-    holder.scale.set(w/e.sx,1,d/e.sz);                                            // 幅×奥行だけ合わせる
+    holder.scale.set(w/e.sx,1,d/e.sz);
     holder.position.x=-o.w/2+w*(i+.5); root.add(holder);
   }
-  root.rotation.y=-THREE.MathUtils.degToRad(o.rot||0)+THREE.MathUtils.degToRad(rule.rot||0);   // 2Dの回転は時計回り
+  root.rotation.y=-THREE.MathUtils.degToRad(o.rot||0)+THREE.MathUtils.degToRad(rule.rot||0);
   root.traverse(c=>{ if(c.isMesh){ c.castShadow=true; c.receiveShadow=true; } });
   return root;
 }
@@ -4311,7 +4341,6 @@ function buildWalls3(grp,rW,rH,doors){
 
 function makePersonMesh3(tagCol, idx){
   const g=new THREE.Group();
-  // ベージュ系の作業服（人ごとに少しだけ明暗差）
   const suitColors=[0xcbb894,0xc2ae89,0xd3c2a0,0xb9a582,0xc7b592];
   const hairColors=[0x1d1d22,0x2b231e,0x342a22,0x222328];
   const suitCol=suitColors[(idx||0)%suitColors.length];
@@ -4334,59 +4363,39 @@ function makePersonMesh3(tagCol, idx){
     parent.add(m); return m;
   };
 
-  // 腰ピボット（ここを基準に立ち/座りの高さを切り替える）
-  const hips=new THREE.Group();
-  hips.position.y=0.85;
-  g.add(hips);
-
-  // ベルト
+  const hips=new THREE.Group(); hips.position.y=0.85; g.add(hips);
   add(hips,new THREE.BoxGeometry(0.30,0.055,0.175),darkMat,0,0.025,0);
 
-  // 胴体（作業服ブルゾン）
-  const torso=new THREE.Group();
-  hips.add(torso);
+  const torso=new THREE.Group(); hips.add(torso);
   add(torso,new THREE.BoxGeometry(0.32,0.44,0.19),suitMat,0,0.24,0);
-  add(torso,new THREE.BoxGeometry(0.015,0.40,0.01),pktMat,0,0.23,0.097);         // 前立てファスナー
-  add(torso,new THREE.BoxGeometry(0.065,0.07,0.014),pktMat,-0.085,0.32,0.098);   // 左胸ポケット
-  add(torso,new THREE.BoxGeometry(0.055,0.032,0.014),tagMat,0.085,0.33,0.098);   // 右胸名札（リストの色と対応）
-  add(torso,new THREE.BoxGeometry(0.11,0.05,0.12),shirtMat,0,0.455,0.02);        // インナー襟元
+  add(torso,new THREE.BoxGeometry(0.015,0.40,0.01),pktMat,0,0.23,0.097);
+  add(torso,new THREE.BoxGeometry(0.065,0.07,0.014),pktMat,-0.085,0.32,0.098);
+  add(torso,new THREE.BoxGeometry(0.055,0.032,0.014),tagMat,0.085,0.33,0.098);
+  add(torso,new THREE.BoxGeometry(0.11,0.05,0.12),shirtMat,0,0.455,0.02);
 
-  // 頭部＋髪型
-  const head=new THREE.Group();
-  head.position.set(0,0.47,0);
-  torso.add(head);
+  const head=new THREE.Group(); head.position.set(0,0.47,0); torso.add(head);
   add(head,new THREE.CylinderGeometry(0.052,0.06,0.08,8),skinMat,0,0.035,0);
   const face=add(head,new THREE.SphereGeometry(0.115,12,10),skinMat,0,0.155,0);
   face.scale.set(0.92,1.06,0.95);
-  // 髪（後頭部・頭頂部＋前髪）
   const hairTop=add(head,new THREE.SphereGeometry(0.122,12,10,0,Math.PI*2,0,Math.PI*0.62),hairMat,0,0.165,-0.012);
-  hairTop.scale.set(0.95,1.05,0.98);
-  hairTop.rotation.x=-0.35;
+  hairTop.scale.set(0.95,1.05,0.98); hairTop.rotation.x=-0.35;
   add(head,new THREE.BoxGeometry(0.17,0.055,0.06),hairMat,0,0.225,0.075);
 
-  // 両腕（肩ピボット）
   const mkArm=(sx)=>{
-    const arm=new THREE.Group();
-    arm.position.set(sx*0.205,0.42,0);
+    const arm=new THREE.Group(); arm.position.set(sx*0.205,0.42,0);
     add(arm,new THREE.BoxGeometry(0.085,0.39,0.085),suitMat,0,-0.18,0);
     add(arm,new THREE.BoxGeometry(0.068,0.075,0.068),skinMat,0,-0.405,0);
-    torso.add(arm);
-    return arm;
+    torso.add(arm); return arm;
   };
   const armL=mkArm(-1), armR=mkArm(1);
 
-  // 両脚（股関節＋膝ピボット）
   const mkLeg=(sx)=>{
-    const leg=new THREE.Group();
-    leg.position.set(sx*0.082,0,0);
+    const leg=new THREE.Group(); leg.position.set(sx*0.082,0,0);
     add(leg,new THREE.BoxGeometry(0.118,0.42,0.128),pantMat,0,-0.21,0);
-    const knee=new THREE.Group();
-    knee.position.set(0,-0.42,0);
+    const knee=new THREE.Group(); knee.position.set(0,-0.42,0);
     add(knee,new THREE.BoxGeometry(0.102,0.37,0.112),pantMat,0,-0.185,0);
-    add(knee,new THREE.BoxGeometry(0.108,0.065,0.185),darkMat,0,-0.397,0.032);  // 黒作業靴
-    leg.add(knee);
-    hips.add(leg);
-    return{leg,knee};
+    add(knee,new THREE.BoxGeometry(0.108,0.065,0.185),darkMat,0,-0.397,0.032);
+    leg.add(knee); hips.add(leg); return{leg,knee};
   };
   const L=mkLeg(-1), R=mkLeg(1);
 
@@ -4416,7 +4425,6 @@ function updatePeople3(){
       const rig=p.mesh.userData.rig;
       p.mesh.position.set(s.pos.x,0,s.pos.z);
       if(s.moving){
-        // 歩行アニメーション
         if(s.angle!=null){ p.lastAngle=s.angle; p.mesh.rotation.y=s.angle; }
         const ph=t3SimMin*2.5+i*1.7;
         const sw=Math.sin(ph)*0.62;
@@ -4425,8 +4433,7 @@ function updatePeople3(){
         rig.legR.rotation.x=-sw; rig.kneeR.rotation.x=Math.max(0,sw*0.45);
         rig.armL.rotation.x=-sw*0.75; rig.armR.rotation.x=sw*0.75;
         p.label.position.set(s.pos.x,1.92,s.pos.z);
-      } else if(s.state==='DESK'){
-        // 椅子に着座するポーズ
+      } else if(s.state==='DESK' && !p.seatPos.stand){
         p.mesh.rotation.y=-THREE.MathUtils.degToRad(p.seatPos.rot||0);
         rig.hips.position.set(0,0.52,-0.04);
         rig.legL.rotation.x=-1.48; rig.kneeL.rotation.x=1.42;
@@ -4434,8 +4441,7 @@ function updatePeople3(){
         rig.armL.rotation.x=-0.55; rig.armR.rotation.x=-0.55;
         p.label.position.set(s.pos.x,1.60,s.pos.z);
       } else {
-        // 立ち作業ポーズ（コピー機・作業台・更衣室など）
-        if(p.lastAngle!=null) p.mesh.rotation.y=p.lastAngle;
+        p.mesh.rotation.y=(s.state==='DESK')?-THREE.MathUtils.degToRad(p.seatPos.rot||0):(p.lastAngle!=null?p.lastAngle:0);
         rig.hips.position.set(0,0.85,0);
         rig.legL.rotation.x=0; rig.kneeL.rotation.x=0;
         rig.legR.rotation.x=0; rig.kneeR.rotation.x=0;
@@ -4448,17 +4454,27 @@ function updatePeople3(){
   });
 }
 
+let t3SpawnPoints=[];
 function rebuildPeople3(){
   disposeGrp(t3Groups.person);
   t3People=[];
   document.getElementById('sim3d-people-list').innerHTML='';
-  const cnt=t3Seats.length;
+  // 椅子への自動スポーンは廃止し、「人物スポーン」を配置した場所だけから湧く
+  const activeSeats = t3SpawnPoints.map(sp=>{
+    let bestChair=null, bestD=0.65;
+    for(const c of t3Seats){
+      const d=Math.hypot(c.x-sp.x, c.z-sp.z);
+      if(d<bestD){ bestD=d; bestChair=c; }
+    }
+    return bestChair ? {x:bestChair.x, z:bestChair.z, rot:bestChair.rot, stand:false} : {x:sp.x, z:sp.z, rot:sp.rot, stand:true};
+  });
+  const cnt=activeSeats.length;
   document.getElementById('sim3d-scount').textContent=cnt;
   const psl=document.getElementById('sim3d-pslider');
-  psl.max=cnt; t3PeopleCount=Math.min(cnt,9)||0; psl.value=t3PeopleCount;
+  psl.max=cnt; t3PeopleCount=cnt; psl.value=t3PeopleCount;
   document.getElementById('sim3d-pcount').textContent=t3PeopleCount;
 
-  t3Seats.forEach((seat,i)=>{
+  activeSeats.forEach((seat,i)=>{
     const role=ROLE_CYCLE3[i%ROLE_CYCLE3.length];
     const name=NAMES3[i%NAMES3.length];
     const color=hue3(i);
@@ -4466,62 +4482,6 @@ function rebuildPeople3(){
     const rng=mulberry32_3(1000+i*97);
     p.schedule=buildSchedule3(p,seat,rng);
     p.mesh=makePersonMesh3(color,i);
-    p.label=makeSprite3(name,'rgba(20,25,32,0.85)');
-    p.label.visible=t3AlwaysLabels;
-    t3Groups.person.add(p.mesh,p.label);
-    t3People.push(p);
-
-    const row=document.createElement('div');
-    row.className='p3d-row';
-    const hexCol='#'+color.toString(16).padStart(6,'0');
-    row.innerHTML=`<span class="p3d-dot" style="background:${hexCol}"></span><span class="p3d-name">${name}</span><span class="p3d-state" id="p3-state-${i}">-</span>`;
-    document.getElementById('sim3d-people-list').appendChild(row);
-  });
-  updatePeople3();
-}
-function hue3(i){ const hues=[.58,.58,.58,.58,.35,.4,.08,.09,.78]; const h=(hues[i%9]+Math.floor(i/9)*.13)%1; const c=new THREE.Color(); c.setHSL(h,.55,.5); return c.getHex(); }
-
-function formatClock3(min){ const tot=9*60+Math.floor(min),hh=Math.floor(tot/60),mm=tot%60; return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
-
-function updateCam3(){
-  const p=t3TopMode?.06:t3CamPhi;
-  const x=t3CamTarget.x+t3CamRadius*Math.sin(p)*Math.sin(t3CamTheta);
-  const y=t3CamTarget.y+t3CamRadius*Math.cos(p);
-  const z=t3CamTarget.z+t3CamRadius*Math.sin(p)*Math.cos(t3CamTheta);
-  t3Camera.position.set(x,y,z);
-  t3Camera.up.set(0,1,0); t3Camera.lookAt(t3CamTarget);
-}
-
-function updatePeople3(){
-  t3People.forEach((p,i)=>{
-    if(i>=t3PeopleCount){ p.mesh.visible=false; p.label.visible=false; return; }
-    const s=sampleSched3(p.schedule,t3SimMin);
-    const vis=s.state!=='OUT';
-    p.mesh.visible=vis; p.label.visible=vis&&t3AlwaysLabels;
-    if(vis){ p.mesh.position.set(s.pos.x,0,s.pos.z); p.label.position.set(s.pos.x,1.55,s.pos.z); }
-    const el=document.getElementById('p3-state-'+i);
-    if(el) el.textContent=s.moving?'移動中…':(STATE_LABEL3[s.state]||s.state);
-  });
-}
-
-function rebuildPeople3(){
-  disposeGrp(t3Groups.person);
-  t3People=[];
-  document.getElementById('sim3d-people-list').innerHTML='';
-  const cnt=t3Seats.length;
-  document.getElementById('sim3d-scount').textContent=cnt;
-  const psl=document.getElementById('sim3d-pslider');
-  psl.max=cnt; t3PeopleCount=Math.min(cnt,9)||0; psl.value=t3PeopleCount;
-  document.getElementById('sim3d-pcount').textContent=t3PeopleCount;
-
-  t3Seats.forEach((seat,i)=>{
-    const role=ROLE_CYCLE3[i%ROLE_CYCLE3.length];
-    const name=NAMES3[i%NAMES3.length];
-    const color=hue3(i);
-    const p={name,role,idx:i,seatPos:seat,color};
-    const rng=mulberry32_3(1000+i*97);
-    p.schedule=buildSchedule3(p,seat,rng);
-    p.mesh=makePersonMesh3(color);
     p.label=makeSprite3(name,'rgba(20,25,32,0.85)');
     p.label.visible=t3AlwaysLabels;
     t3Groups.person.add(p.mesh,p.label);
@@ -4558,6 +4518,7 @@ function convert2Dto3D(state){
       isWindow: !!o.isWindow,
       isStair: !!o.isStair,
       isComment: !!o.isComment,
+      isSpawn: !!o.isSpawn,
     })),
     lines: (state.lines||[]).map(l=>({
       id:l.id, x1:l.x1, y1:l.y1, x2:l.x2, y2:l.y2,
@@ -4602,7 +4563,7 @@ function buildRoom3D(roomData,opts){
 
 // Objects（1段目: 台情報の収集 → 2段目: 重なっている卓上アイテムを自動乗せ）
   const RE_MID_STAGE=/デスクマット|モニター台|モニタースタンド|プロジェクター台/;
-  const RE_SURFACE=/デスク|机|テーブル|作業台|カウンター|キャビネット|本棚|書庫|シェルフ|ロッカー|冷蔵庫|袖机|ワゴン|パレット|台$/;
+  const RE_SURFACE=/デスク|机|テーブル|作業台|カウンター|キャビネット|本棚|書庫|シェルフ|ロッカー|冷蔵庫|袖机|ワゴン|パレット|給湯室|キッチン|流し台|シンク|台$/;
   const RE_TABLETOP=/ノートPC|タブレット|スマホ|スマートフォン|デスクトップPC|Mac mini|Raspberry|ドッキング|USBハブ|モニター|プロジェクター|キーボード|マウス|テンキー|トラックパッド|ペンタブ|ゲームパッド|プリンタ|インクジェット|複合機|コピー機|スキャナ|SC$|ラベル|ルーター|アクセスポイント|スイッチ|NAS|UPS|ONU|モデム|カメラ|スピーカー|SPK|ヘッドセット|マイク|スイッチャー|キャプチャ|電話|FAX|PBX|インターホン|無線機|電源タップ|ケーブル|ACアダプタ|充電|書類トレー|ファイルBOX|カレンダー|レタートレー|ペン立て|ステープラー|電卓|シール貼り|ノギス|マルチメーター|オシロスコープ|温湿度計|ICテスター|CD\/DVD|メディアBOX|鍵BOX|金庫\(小\)|ゴミ箱\(卓上\)|マガジンラック|電子レンジ|コーヒーメーカー|電気ポット|ポット|観葉植物 小|時計|段ボール|資材コンテナ|工具箱/;
 
   function ptInFootprint3(px,pz,b){
@@ -4649,6 +4610,7 @@ function buildRoom3D(roomData,opts){
 
   items3.forEach(({o,spec,ment,mrule,elev})=>{
     const cx=o.x+o.w/2, cz=o.y+o.h/2;
+    if(spec.kind==='spawn'){ t3SpawnPoints.push({x:cx,z:cz,rot:(o.rot||0)}); return; }
     let mesh=null;
 
     if(ment&&ment.state==='ready'){
