@@ -4165,19 +4165,30 @@ function sampleSched3(segs,min){ for(const s of segs){if(min>=s.t0&&min<=s.t1){i
 // 3D KEYWORD RULES (same as standalone)
 const ROOM_WALL_H3 = 2.4;   // 室内の壁の高さ（m）。部屋の外周の壁と、置いた「壁」オブジェクトで共通
 const KW3=[
+  [/デスクマット/,{height:0.01,kind:'solid'}],
+  [/モニター台|モニタースタンド/,{height:0.10,kind:'solid'}],
   [/デスク|机|作業机/,{height:0.72,kind:'solid'}],
   [/会議テーブル|ミーティング/,{height:0.72,kind:'solid'}],
   [/作業台|カウンター/,{height:0.85,kind:'solid'}],
   [/チェア|椅子|スツール/,{height:0.46,kind:'chair'}],
   [/ロッカー|書庫|本棚|シェルフ/,{height:1.8,kind:'solid'}],
   [/キャビネット|収納/,{height:1.0,kind:'solid'}],
-  [/コピー機|複合機|プリンタ/,{height:1.1,kind:'solid'}],
+  [/コピー機|複合機\(A3\)/,{height:1.1,kind:'solid'}],
+  [/プリンタ|インクジェット|複合機/,{height:0.24,kind:'solid'}],
   [/冷蔵庫/,{height:1.2,kind:'solid'}],
+  [/電子レンジ/,{height:0.30,kind:'solid'}],
+  [/電気ポット|ポット|コーヒーメーカー/,{height:0.28,kind:'solid'}],
+  [/扇風機/,{height:0.85,kind:'solid'}],
+  [/空気清浄機/,{height:0.58,kind:'solid'}],
+  [/シュレッダー/,{height:0.60,kind:'solid'}],
+  [/ノートPC/,{height:0.24,kind:'solid'}],
+  [/電話|FAX/,{height:0.12,kind:'solid'}],
+  [/モニター/,{height:0.38,kind:'solid'}],
   [/洗面台|流し台|シンク/,{height:0.85,kind:'solid'}],
-  [/パーティション|間仕切り/,{height:1.2,kind:'solid'}],
+  [/パーティション|間仕切り/,{height:1.4,kind:'solid'}],
   [/サーバー|ラック/,{height:1.6,kind:'solid'}],
   [/ソファ/,{height:0.4,kind:'solid'}],
-  [/ゴミ箱/,{height:0.35,kind:'solid'}],
+  [/ゴミ箱/,{height:0.55,kind:'solid'}],
   [/テーブル|台/,{height:0.72,kind:'solid'}],
 ];
 function objSpec3(o){
@@ -4589,21 +4600,64 @@ function buildRoom3D(roomData,opts){
   const sun=t3Scene.getObjectByName('sun3');
   if(sun){ sun.position.set(rW*.4,6,rH*.2); sun.target.position.set(rW/2,0,rH/2); }
 
-  // Objects
-  roomData.objects.forEach(o=>{
+// Objects（1段目: 台情報の収集 → 2段目: 重なっている卓上アイテムを自動乗せ）
+  const RE_MID_STAGE=/デスクマット|モニター台|モニタースタンド|プロジェクター台/;
+  const RE_SURFACE=/デスク|机|テーブル|作業台|カウンター|キャビネット|本棚|書庫|シェルフ|ロッカー|冷蔵庫|袖机|ワゴン|パレット|台$/;
+  const RE_TABLETOP=/ノートPC|タブレット|スマホ|スマートフォン|デスクトップPC|Mac mini|Raspberry|ドッキング|USBハブ|モニター|プロジェクター|キーボード|マウス|テンキー|トラックパッド|ペンタブ|ゲームパッド|プリンタ|インクジェット|複合機|コピー機|スキャナ|SC$|ラベル|ルーター|アクセスポイント|スイッチ|NAS|UPS|ONU|モデム|カメラ|スピーカー|SPK|ヘッドセット|マイク|スイッチャー|キャプチャ|電話|FAX|PBX|インターホン|無線機|電源タップ|ケーブル|ACアダプタ|充電|書類トレー|ファイルBOX|カレンダー|レタートレー|ペン立て|ステープラー|電卓|シール貼り|ノギス|マルチメーター|オシロスコープ|温湿度計|ICテスター|CD\/DVD|メディアBOX|鍵BOX|金庫\(小\)|ゴミ箱\(卓上\)|マガジンラック|電子レンジ|コーヒーメーカー|電気ポット|ポット|観葉植物 小|時計|段ボール|資材コンテナ|工具箱/;
+
+  function ptInFootprint3(px,pz,b){
+    const bx=b.x+b.w/2, bz=b.y+b.h/2, r=-THREE.MathUtils.degToRad(b.rot||0);
+    const dx=px-bx, dz=pz-bz;
+    const lx=dx*Math.cos(r)-dz*Math.sin(r), lz=dx*Math.sin(r)+dz*Math.cos(r);
+    return Math.abs(lx)<=b.w/2+0.02 && Math.abs(lz)<=b.h/2+0.02;
+  }
+
+  const items3=roomData.objects.map(o=>{
     const spec=objSpec3(o);
+    const mrule=(spec.kind==='solid'||spec.kind==='chair'||spec.kind==='door')?opModelRule(o):null;
+    const ment=mrule?opModelEntry(mrule.file):null;
+    const actualH=(ment&&ment.state==='ready')?ment.sy:spec.height;
+    const nm=(o.defName||o.name||'').trim();
+    let stage=9; // 0:床置き台, 1:中間台(マット等), 2:卓上小物
+    if(spec.elevation===0&&spec.kind==='solid'){
+      if(RE_MID_STAGE.test(nm)) stage=1;
+      else if(RE_TABLETOP.test(nm)) stage=2;
+      else if(RE_SURFACE.test(nm)) stage=0;
+    }
+    return{o,spec,mrule,ment,actualH,stage,elev:spec.elevation};
+  });
+
+  // stage 1(中間台) → stage 2(卓上小物) の順に、下の台があれば天板高さへ乗せる
+  const surfaces0=items3.filter(it=>it.stage===0);
+  items3.filter(it=>it.stage===1).forEach(it=>{
+    const cx=it.o.x+it.o.w/2, cz=it.o.y+it.o.h/2;
+    let top=0;
+    for(const b of surfaces0){
+      if(b!==it&&ptInFootprint3(cx,cz,b.o)) top=Math.max(top,b.elev+b.actualH);
+    }
+    if(top>0) it.elev=top;
+  });
+  const surfacesAll=items3.filter(it=>it.stage===0||it.stage===1);
+  items3.filter(it=>it.stage===2).forEach(it=>{
+    const cx=it.o.x+it.o.w/2, cz=it.o.y+it.o.h/2;
+    let top=0;
+    for(const b of surfacesAll){
+      if(b!==it&&ptInFootprint3(cx,cz,b.o)) top=Math.max(top,b.elev+b.actualH);
+    }
+    if(top>0) it.elev=top;
+  });
+
+  items3.forEach(({o,spec,ment,mrule,elev})=>{
     const cx=o.x+o.w/2, cz=o.y+o.h/2;
     let mesh=null;
 
-    const mrule=(spec.kind==='solid'||spec.kind==='chair')?opModelRule(o):null;      // 3Dモデルの対応があるか
-    const ment=mrule?opModelEntry(mrule.file):null;
     if(ment&&ment.state==='ready'){
       const mo=opMakeModel(ment,mrule,o);
-      mo.position.set(cx,spec.elevation,cz); mo.userData=o;
+      mo.position.set(cx,elev,cz); mo.userData=o;
       (o.layerId===3?t3Groups.outlet:t3Groups.furniture).add(mo);
       if(spec.kind==='chair') t3Seats.push({x:cx,z:cz,rot:(o.rot||0)});
       const spr0=makeSprite3(o.label||o.defName,'rgba(20,25,32,0.85)');
-      spr0.position.set(cx,spec.elevation+ment.sy+.28,cz); spr0.visible=t3AlwaysLabels;
+      spr0.position.set(cx,elev+ment.sy+.28,cz); spr0.visible=t3AlwaysLabels;
       t3Scene.add(spr0); t3LabelSprites.push(spr0);
       return;
     }
@@ -4613,7 +4667,7 @@ function buildRoom3D(roomData,opts){
       t3Seats.push({x:cx,z:cz,rot:(o.rot||0)});
     } else if(spec.kind==='comment'){
       const spr=makeSprite3(o.label||o.defName,(o.color||'#888')+'dd');
-      spr.position.set(cx,spec.elevation,cz);
+      spr.position.set(cx,elev,cz);
       spr.visible=t3Groups.comment.visible;
       t3Groups.comment.add(spr);
       return;
@@ -4638,7 +4692,7 @@ function buildRoom3D(roomData,opts){
     }
 
     if(spec.kind!=='zone'&&spec.kind!=='stair'){
-      mesh.position.set(cx,spec.elevation+spec.height/2,cz);
+      mesh.position.set(cx,elev+spec.height/2,cz);
       mesh.rotation.y=-THREE.MathUtils.degToRad(o.rot);   // 2Dの回転は時計回り（three.jsの正方向と逆）
     }
     mesh.castShadow=spec.kind!=='zone'&&spec.kind!=='stair'&&spec.kind!=='window';
@@ -4649,7 +4703,7 @@ function buildRoom3D(roomData,opts){
 
     if(spec.kind!=='outlet' && spec.kind!=='wall'){
       const spr=makeSprite3(o.label||o.defName,'rgba(20,25,32,0.85)');
-      spr.position.set(cx,spec.elevation+spec.height+.28,cz);
+      spr.position.set(cx,elev+spec.height+.28,cz);
       spr.visible=t3AlwaysLabels;
       t3Scene.add(spr); t3LabelSprites.push(spr);
     }
@@ -4896,8 +4950,8 @@ window.get3DRefs = function(){
 (function(){
 'use strict';
 
-const APP_VERSION   = 'v1.13.0';
-const APP_UPDATED   = '2026-11-10';
+const APP_VERSION   = 'v1.13.1';
+const APP_UPDATED   = '2026-11-25';
 window._opAppInfo = {version:APP_VERSION, updated:APP_UPDATED};
 const SLOTS_KEY     = 'op_slots_v1';
 const SLOT_NAMES_KEY= 'op_slot_names_v1';

@@ -12,7 +12,7 @@ window.OP_MODELS = {
     { re: /^シューズBOX$/,                       file: 'locker_small.glb' },
     { re: /^ロッカー 3連$/,                       file: 'locker_3row_steel.glb' },
     { re: /^ロッカー 6連$/,                       file: 'locker_3row_steel.glb', repeatX: 2 },
-    { re: /^(コピー機|複合機|レーザープリンタ|インクジェット)/, file: 'copier_desktop.glb' },
+    { re: /^(コピー機|複合機|レーザープリンタ|インクジェット)/, file: 'printer_home.glb' },
     { re: /^(電話機|固定電話機|IP電話機)$/,       file: 'phone_office_white.glb' },
 
     // ── 机上小物（別置き用） ──
@@ -26,5 +26,25 @@ window.OP_MODELS = {
     { re: /^脚立/,                                file: 'ladder_alu.glb' },
     { re: /^冷蔵庫$/,                             file: 'fridge_retro.glb' },
     { re: /^ホワイトボード$/,                     file: 'whiteboard_wall.glb' },
+    
+    
+    { re: /^扇風機/,                        file: 'fan_home.glb' },
+{ re: /^空気清浄機$/,                   file: 'air_purifier.glb' },
+{ re: /^(インクジェット|レーザープリンタ|複合機\(A4\))/, file: 'copier_desktop.glb' },
+{ re: /^ドア\(開き戸\)$/,               file: 'door_swing_white.glb' },
+{ re: /^ゴミ箱$/,                       file: 'trash_45l_lid.glb' },
+{ re: /^リサイクルBOX$/,                file: 'trash_90l_open.glb' },
+{ re: /^電子レンジ$/,                   file: 'microwave_oven.glb' },
+{ re: /^コーヒーメーカー$/,             file: 'kettle_electric_pot.glb' },
+{ re: /^洗面台$/,                       file: 'washbasin_unit.glb' },
+{ re: /^パーティション/,                file: 'partition_low.glb' },
+{ re: /(シュレッダー)/,                 file: 'shredder_office.glb' },
+{ re: /^サーバーラック$/,               file: 'server_rack.glb' },
+{ re: /^消火器$/,                       file: 'fire_extinguisher.glb' },
+{ re: /^観葉植物/,                      file: 'plant_potted.glb' },
+{ re: /^傘立て$/,                       file: 'umbrella_stand.glb' },
   ]
+  
+  
+  
 };
