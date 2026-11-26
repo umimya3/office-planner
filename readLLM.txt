@@ -1,0 +1,172 @@
+新しいファイル構成（整理後の全体像）
+既存の外部ファイル（items.js / models.js / help.js / excel-export.js / GLTFLoader.js / three.min.js）はそのまま活かし、巨大化した index.html を以下の 7ファイル に切り出します。
+style.css（約250行）：<style> と、各パッチがJSで動的注入していたCSSをすべて統合
+recovery.js（約180行）：<head> 内のデバッグログパネル＋診断・復旧ツール一式
+view3d.js（約450行）：Three.js 3Dエンジン＋在室シミュレーション＋3Dテーマ同期（最大の塊）
+editor-2d.js（約400行）：2Dキャンバスの描画（備品・端点アイコン統合済み）・マウス操作・拡大縮小・ルーラー
+editor-ui.js（約350行）：サイドバー・検索・レイヤー・プロパティ・物のリスト・左右折りたたみ・ショートカット
+storage.js（約430行）：JSON検証・自動保存・10スロット管理・共有URL・高解像度PNG画像保存・Undo/Redo履歴
+index.html（約180行）：HTML骨組みと各ファイルの読み込みのみ
+
+
+他のLLMに「このファイルと修正対象ファイル」を渡すだけで正確に設計意図・依存関係を理解できるよう、仕様・契約・注意点を網羅した ARCHITECTURE.md を作成しました。
+このままプロジェクトフォルダ直下に ARCHITECTURE.md として保存し、今後別のLLMに作業を依頼する際は 「ARCHITECTURE.md ＋ 変更したいファイル」 を一緒に読み込ませてください。
+Markdown
+# Office Planner — ARCHITECTURE.md（設計・依存関係メモ）
+
+このドキュメントは、分割されたコードベースを人間および他のLLMが安全に理解・改修するための設計書です。
+
+---
+
+## 1. 全体方針と制約（厳守事項）
+
+- **ビルドツール不要のブラウザ直接実行構成**
+  - バンドラ（Vite/Webpack等）や TypeScript は使用しません。
+  - **ES Modules (`import` / `export` / `type="module"`) は使わないこと。** HTMLを `file://` で直接開いた際にCORSエラーで動かなくなるのを防ぐため、クラシック `<script>` タグによるグローバル共有構成を採用しています。
+- **3Dモデルの注意点**
+  - Three.js は CDN（r128）を優先し、オフライン時は `./three.min.js` にフォールバックします。
+  - `./GLTFLoader.js` + `./models.js` による GLB 3Dモデル読み込みはブラウザのCORS制約を受けるため、`file://` 直開き時は箱（Box）表示にフォールバックします（ローカルHTTPサーバー経由では正常に表示されます）。
+- **外部ファイルの互換性維持**
+  - `items.js` / `models.js` / `help.js` / `excel-export.js` は既存のグローバル変数・関数・DOM IDを直接参照するため、公開シンボル名や主要DOM IDを勝手に変更・削除しないでください。
+
+---
+
+## 2. ファイル構成と読み込み順
+
+`index.html` での読み込み順には意味があります。順序を変えないでください。
+
+### `<head>` 内
+1. **`recovery.js`**（約210行）
+   - エラーログパネル（右下に常駐、`Ctrl+Shift+D` で開閉）および診断・復旧モーダル。
+   - アプリ本体が起動クラッシュしても単体で動作するよう、他のスクリプトより先に独立ロードします。
+2. **Three.js / `GLTFLoader.js` / `models.js`**
+   - 3D描画ライブラリとGLBモデル対応表 (`window.OP_MODELS`)。
+3. **`style.css`**（約250行）
+   - テーマ変数（ダーク/ライト）、印刷用スタイル（`@media print`）、2D/3D UI・モーダル全般のスタイル。
+
+### `<body>` 内
+1. **テーマ即時初期化インラインスクリプト**（`index.html` 内）
+   - 画面描画前のチラつきを防ぐため、`localStorage('op_theme_v1')` とOS設定を確認して `body.light-mode` を即座に付与します。
+2. **静的HTML骨組み**（`index.html` 内）
+   - ヘッダー、左右サイドバー、キャンバス領域、ステータスバー、コンテキストメニュー、各種モーダル。
+3. **`items.js`**（既存外部ファイル）
+   - 家具・構造・備品・OA用品カタログ定義（`FURN_DEFS`, `STRUCT_DEFS`, `GENBA_DEFS`, `OFFICE_DEFS`）。
+4. **`editor-2d.js`**（約420行）
+   - 2Dキャンバスの状態、描画（特殊備品シンボル・配線端点アイコン統合）、ヒットテスト、マウス操作、ズーム/パン、部屋外管理、ルーラー、表示設定トグル。
+5. **`editor-ui.js`**（約370行）
+   - レイヤー管理、サイドバー構築＆検索、配線パネル、右プロパティパネル、コンテキストメニュー、キーボードショートカット、物のリスト、左右パネル折りたたみ、バージョン情報バー。
+6. **`storage.js`**（約440行）
+   - JSONバリデーション (`validateState`)、状態適用 (`applyState`)、ブラウザ自動保存、10スロット保存管理、読込前バックアップ、共有URL（gzip圧縮）、テンプレート読込、高解像度PNG画像保存、Undo/Redo履歴、起動シーケンス。
+7. **`view3d.js`**（約440行）
+   - ヘッダーの「2D編集 / 3D表示」切替タブ、Three.js 3Dシーン構築、壁・ドア開口生成、高さ推定・卓上アイテム自動乗せ、3D人物リグと9:00〜18:00在室シミュレーション、3Dテーマ同期。
+8. **`help.js` / `excel-export.js`**（既存外部ファイル）
+   - ヘルプ表示・テンプレート導線・Excel出力。
+
+---
+
+## 3. 状態データモデルと座標系
+
+### 状態オブジェクト構造（`getState()` / JSON保存形式 v4）
+```json
+{
+  "ver": 4,
+  "roomW": 8.24,
+  "roomH": 5.70,
+  "margin": 3,
+  "nextId": 10,
+  "objects": [
+    {
+      "id": 1,
+      "defName": "デスク",
+      "name": "デスク",
+      "label": "デスク",
+      "cat": "デスク",
+      "x": 1.2, "y": 0.8, "w": 1.2, "h": 0.7, "rot": 0,
+      "color": "#4a90d9",
+      "icon": "▪",
+      "round": false,
+      "isDoor": false, "isWindow": false, "doorArc": false, "isStair": false,
+      "isComment": false, "isSpawn": false,
+      "itemId": "KA010111",
+      "note": "細目・メモ",
+      "layerId": 1
+    }
+  ],
+  "lines": [
+    {
+      "id": 2,
+      "x1": 0.5, "y1": 0.5, "x2": 3.0, "y2": 0.5,
+      "color": "#ffcc00", "width": 2, "dash": [],
+      "label": "電気配線", "typeId": "electric", "layerId": 3,
+      "showEndpoints": true, "epOverride": null
+    }
+  ],
+  "layers": [
+    { "id": 1, "name": "家具", "color": "#4a90d9", "visible": true }
+  ],
+  "activeLayerId": 1,
+  "persons": []
+}
+座標系（2D vs 3D の違いに注意）
+2D座標（メートル単位）
+部屋の左上角が (0, 0)、右方向が +x、下（奥）方向が +y。
+部屋の外側も配置可能（負座標や > roomW / roomH を許容）。workMargin によりキャンバスの表示余白が自動拡張される。
+オブジェクトの (x, y) は 未回転時の左上角。回転 rot は中心基準で 時計回り（度）。
+3D座標（Three.js・メートル単位）
+2Dの (x, y) が 3Dの (x, z) 平面に対応し、高さ方向が +y。
+オブジェクト中心は (o.x + o.w/2, elev + h/2, o.y + o.h/2)。
+回転方向が2Dと逆のため、3D側では rotation.y = -THREE.MathUtils.degToRad(o.rot) を使用する。
+デフォルトレイヤーID（editor-ui.js）
+1: 家具 / 2: 構造 / 3: 電気配線 / 4: LAN / 5: その他 / 6: 人物スポーン
+persons 配列は旧2D人物シムの名残だが、既存JSONの後方互換のため読み込み・保持のみ行っている。
+4. localStorage / sessionStorage キー一覧
+キー	管理ファイル	用途
+op_v4	storage.js, recovery.js	ブラウザへの自動保存データ
+op_slots_v1	storage.js, recovery.js	10スロット保存データ ("0"〜"9")
+op_slot_names_v1	storage.js, recovery.js	各スロットの任意名称
+op_backup_v1	storage.js, recovery.js	読込・全クリア直前の1回分退避 ({label, time, json})
+op_corrupt_v1	recovery.js	起動時読込に失敗した壊れた自動保存データの退避
+op_theme_v1	index.html	テーマ設定 ('auto' / 'light' / 'dark')
+op_view_v1	editor-2d.js	ラベル詳細表示・白黒印刷モード設定
+op_ui_v1	editor-ui.js	左右パネルの折りたたみ状態
+op_imgexp_v1	storage.js	PNG画像保存ダイアログの前回設定
+sessionStorage['op_safe_boot']	recovery.js	セーフブート要求フラグ ('1')
+5. ファイル間の公開API・依存マップ
+index.html（テーマ）
+window._opThemeMode() / window._opApplyTheme(mode, persist)
+recovery.js
+公開: window._dbgLog(msg, detail), window._dbgLogs(), window._opStashCorrupt(raw, reason), window._opSafeBootRequested(), window._opRecoveryOpen(opts), window._opBootFailed(ex), window._opShowBootNotice()
+任意参照: window.getState, window._opAppInfo, window._op3DStatus, window._opReload
+editor-2d.js
+共有状態変数: roomW, roomH, objects, lines, selectedIds, selectedLineIds, nextId, scale, workMargin, BASE_SCALE, LS_KEY, SNAP, MAX_MARGIN, LINE_TYPES, canvas, ctx, showGridFine, showGridCoarse, showLabels, showLblName, showLblId, showLblNote, viewMono, opPrinting, useSnap, clipboard, dragging, draggingLine, lineMode, currentLineType, lineWidth, lineColor, lineDash, drawingLine, hoverPt
+公開関数: draw() (window.patchedDraw), drawLine(), drawObject(), resizeCanvas(), mToPx(), pxToM(), snapM(), orgPx(), setZoom(), fitRoom(), fitAll(), centerOn(), scroller(), canvasPt(), hitObj(), hitLine(), objBounds(), unionBounds(), clampToWork(), neededMargin(), opEnsureMargin(), outsideObjects(), updateOutsideInfo(), syncRoomInputs(), opIdKey(), opDupIdMap()
+連携フック:
+window._opInRuler() / window._opRulerOff()
+window._opHits（検索ハイライト用のオブジェクトID Set）
+描画時に window._opFixLayerIds() と window._opDrawOverlays() が存在すれば呼び出す
+editor-ui.js
+定数: APP_VERSION, APP_UPDATED, window._opAppInfo
+公開関数: buildSidebar(tab), buildLinePanel(), buildLayerPanel(), updatePropPanel(), updateCounts(), placeObject(def) (window.addFurniture), deleteSelected(), rotateSelected(deg), bringToFront(), sendToBack(), copySelected(), pasteClipboard(offset), isLayerVisible(lid) (window.isLayerVisible), migrateLayerIds(), fixMissingLayerIds(), updateActiveBadge(), showModal(id), hideModal(id), showError(msg), showToast(msg, ms), esc(s), clampF(v,min,max), opModalOpen(), opTypingTarget(t), opView3D(), opEditKeysAllowed(e), opSetLineMode(on), opExitModes() (window.opExitModes)
+ブリッジ: window._opGetLayerExport(), window._opRestoreLayers(state), window._opLayerSnapshot(), window._opLayerRestoreSnapshot(s), window._opObjListRefresh(), window.activeLayerId / window._activeLayerId2
+storage.js
+公開関数: getState(), validateState(raw), applyState(raw), stateToJSON(), jsonToState(s), b64ToState(b), saveLS(), loadLS(), scheduleSave(), encodeShareHash(obj), decodeShareHash(str), getLayoutQuery(), loadExternalStartup(), refreshTemplateList(), opWithBackup(label, fn), opGetBackup(), opRestoreBackup(), opReleaseSlot()
+ブリッジ: window._opCurrentSlotName(), window._opClearCurrentSlot(), window._opHistoryNote(), window._opHistoryFlush(), window._opHistoryCommit(label), window._opHistoryInit(), window._opHistoryInfo()
+view3d.js
+公開/ブリッジ: window._opApply3DTheme(), window._op3DStatus(), window._opSync3DIfOpen(), window.syncToThree(), window.buildRoom3D(roomData, opts), window.get3DRefs(), window._opModelCache, window._opT3()
+6. 開発・改修時の重要ルール
+変更の保存・履歴・余白更新はすべて scheduleSave() を経由する
+家具の移動・追加・削除・プロパティ変更時は必ず draw(); updateCounts(); scheduleSave();（または必要なUI更新）を呼んでください。
+scheduleSave() 1つで以下の4つが連動します：
+部屋外配置に応じた余白自動拡張 (opEnsureMargin) と外配置カウント更新
+localStorage へのデバウンス自動保存 (saveLS)
+スロット未反映バッジの更新 (updateCurrentSlotBadge)
+Undo/Redo履歴のデバウンス記録 (_opHistoryNote)
+データの読込・全クリアは opWithBackup(label, fn) と validateState() を通す
+外部JSONやURLの適用は applyState() に集約されており、不正データによる既存作業の破壊を防ぎます。
+objects / lines に新しいプロパティを追加する場合は、storage.js の validateState() でのサニタイズ許可リスト（および必要なら view3d.js の convert2Dto3D()）を必ず更新してください。
+新規モーダル・ダイアログを追加する場合
+.modal-overlay と .show クラスで開閉する設計にするか、editor-ui.js の opModalOpen() のセレクタへ追加してください。これを怠るとモーダル入力中に Delete / R / 矢印キーなどのキャンバス用ショートカットが誤爆します。
+3Dビュー中の編集禁止
+body.view3d-mode クラス付与中は、CSS（pointer-events: none）と opEditKeysAllowed() によって2D側の操作が無効化されます。3D側から直接 objects を書き換える仕様を追加しない限り、この分離を維持してください。
+バージョン更新時
+editor-ui.js 先頭の APP_VERSION と APP_UPDATED を更新すると、フッター・診断情報・3Dビューのヒント表示に自動反映されます。
