@@ -1,4 +1,4 @@
-/* 2D/3D ビュー切替 + Three.js 3Dエンジン + 在室シミュレーション + テーマ同期 */
+/* 2D/3D ビュー切替 + Three.js 3Dエンジン + 時間帯照明 + 在室シミュレーション + テーマ同期 */
 (function(){
 'use strict';
 
@@ -31,6 +31,13 @@ view3d.innerHTML = `
     <label class="ly3d-row"><input type="checkbox" id="ly3-line"><span class="ly3d-swatch" style="background:#f08e33"></span>配線</label>
     <label class="ly3d-row"><input type="checkbox" id="ly3-person" checked><span class="ly3d-swatch" style="background:#e67e22"></span>シム人物</label>
     <label class="ly3d-row"><input type="checkbox" id="ly3-label"><span class="ly3d-swatch" style="background:#c9d2de"></span>常時ラベル</label>
+    <div id="panel-3d-head" style="border-top:1px solid #2c3542;">時間帯・照明</div>
+    <div id="tod-3d-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:7px 10px 8px;">
+      <button class="btn3d tod3d" data-tod="morning" style="padding:5px 4px;font-size:11px;">🌅 朝</button>
+      <button class="btn3d tod3d active" data-tod="noon" style="padding:5px 4px;font-size:11px;">☀ 昼</button>
+      <button class="btn3d tod3d" data-tod="evening" style="padding:5px 4px;font-size:11px;">🌇 夕方</button>
+      <button class="btn3d tod3d" data-tod="night" style="padding:5px 4px;font-size:11px;">🌙 夜</button>
+    </div>
     <div class="note3d"><b>ⓘ この3D表示について</b><br>・高さは名前からの推定値です（半透明の物は、大きさから推定）<br>・人の動きは演出で、通れるかの検証ではありません<br>・2Dで非表示にしたレイヤーも表示します<br>・この画面では編集できません</div>
   </div>
   <div id="ctrl-3d">
@@ -41,7 +48,7 @@ view3d.innerHTML = `
   </div>
   <div id="sim-3d">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-      <span id="sim3d-clock">09:00</span>
+      <span id="sim3d-clock" title="09:00">09:00</span>
       <span style="color:#5b6472;font-size:10px;">9:00–18:00</span>
     </div>
     <input type="range" id="sim3d-slider" min="0" max="540" step="1" value="0">
@@ -166,6 +173,8 @@ function switchView(mode){
 
 // ─── 3Dエンジン変数・定数 ────────────────────────────────────
 let t3Scene, t3Camera, t3Renderer, t3Clock;
+let t3Ambient=null, t3Hemi=null, t3Sun=null, t3RoomLight=null;
+let t3TimeOfDay='noon';
 let t3PickAbles=[], t3LabelSprites=[], t3People=[], t3Seats=[], t3SpawnPoints=[];
 let t3Target={}, t3CorridorZ=2.75;
 let t3CamTarget, t3CamRadius=10, t3CamTheta, t3CamPhi=1.0, t3TopMode=false;
@@ -320,8 +329,13 @@ function opModelEntry(file){
       Object.assign(e,{state:'ready',tpl,sx:Math.max(s.x,1e-3),sy:Math.max(s.y,1e-3),sz:Math.max(s.z,1e-3),cx:c.x,cz:c.z,minY:b.min.y});
       done();
     }, undefined, err=>{
-      e.state='failed'; console.warn('3D model load failed:',file,err);
-      if(!t3ModelWarned){ t3ModelWarned=true; try{ if(typeof showToast==='function') showToast('3Dモデルを読み込めませんでした（箱で表示します）。index.html を直接開いている場合は、モデルを表示できません',6000); }catch(x){} }
+      e.state='failed'; console.info('3D model fallback to box:', file);
+      if(!t3ModelWarned){
+        t3ModelWarned=true;
+        if(location.protocol==='file:' && typeof showToast==='function'){
+          try{ showToast('3Dモデルを読み込めませんでした（箱で表示します）。index.html を直接開いている場合は、モデルを表示できません',6000); }catch(x){}
+        }
+      }
       done();
     });
   }catch(ex){ e.state='failed'; }
@@ -563,15 +577,65 @@ function convert2Dto3D(state){
   };
 }
 
-// ─── テーマ同期 ──────────────────────────────────────────────
+// ─── 時間帯照明 & テーマ同期 ─────────────────────────────────
 const THEME_DARK  = { bg: 0x12161c, floor: 0xe7e2d6, wall: 0xf4f1ea, grid1: 0xbfbaa8, grid2: 0xd6d1c1 };
 const THEME_LIGHT = { bg: 0xf0f2f5, floor: 0xdddad2, wall: 0xfaf9f6, grid1: 0xc8c4b8, grid2: 0xe0ddd6 };
+
+function applyTimeLighting(){
+  if(!threeReady || !t3Scene) return;
+  document.querySelectorAll('.tod3d').forEach(b=>b.classList.toggle('active', b.dataset.tod===t3TimeOfDay));
+  if(window._opEasterDiscoActive) return;
+
+  const isLight = document.body.classList.contains('light-mode');
+  const th = isLight ? THEME_LIGHT : THEME_DARK;
+  const rW = t3FloorMesh ? t3FloorMesh.geometry.parameters.width  : 8;
+  const rH = t3FloorMesh ? t3FloorMesh.geometry.parameters.height : 6;
+  const span = Math.max(rW, rH, 10);
+
+  if(t3Sun){
+    t3Sun.shadow.camera.left=-span; t3Sun.shadow.camera.right=span;
+    t3Sun.shadow.camera.top=span; t3Sun.shadow.camera.bottom=-span;
+    t3Sun.shadow.camera.far=span*3;
+    t3Sun.shadow.camera.updateProjectionMatrix();
+    t3Sun.target.position.set(rW/2, 0, rH/2);
+  }
+  if(t3RoomLight){
+    t3RoomLight.position.set(rW/2, 2.28, rH/2);
+    t3RoomLight.distance = Math.max(rW, rH) * 1.9;
+  }
+
+  const tod = t3TimeOfDay;
+  if(tod==='morning'){
+    t3Scene.background = new THREE.Color(isLight ? 0xdceeff : 0x1b2434);
+    if(t3Ambient){ t3Ambient.color.setHex(0xfff8f0); t3Ambient.intensity=0.50; }
+    if(t3Hemi){ t3Hemi.color.setHex(0xcde4ff); t3Hemi.groundColor.setHex(0x3b3328); t3Hemi.intensity=0.48; }
+    if(t3Sun){ t3Sun.color.setHex(0xffe7cc); t3Sun.intensity=0.85; t3Sun.position.set(rW*1.25, 3.2, rH*0.25); }
+    if(t3RoomLight){ t3RoomLight.intensity=0; }
+  } else if(tod==='evening'){
+    t3Scene.background = new THREE.Color(isLight ? 0xf0cbb0 : 0x281822);
+    if(t3Ambient){ t3Ambient.color.setHex(0xffccb0); t3Ambient.intensity=0.40; }
+    if(t3Hemi){ t3Hemi.color.setHex(0xffa870); t3Hemi.groundColor.setHex(0x382018); t3Hemi.intensity=0.42; }
+    if(t3Sun){ t3Sun.color.setHex(0xff8844); t3Sun.intensity=1.05; t3Sun.position.set(-rW*0.65, 2.1, rH*0.95); }
+    if(t3RoomLight){ t3RoomLight.color.setHex(0xfff2d6); t3RoomLight.intensity=0.25; }
+  } else if(tod==='night'){
+    t3Scene.background = new THREE.Color(0x090c14);
+    if(t3Ambient){ t3Ambient.color.setHex(0xfff2dc); t3Ambient.intensity=0.36; }
+    if(t3Hemi){ t3Hemi.color.setHex(0x9ab8ff); t3Hemi.groundColor.setHex(0x1e1a14); t3Hemi.intensity=0.26; }
+    if(t3Sun){ t3Sun.color.setHex(0x7aa2ff); t3Sun.intensity=0.15; t3Sun.position.set(rW*0.5, 6, rH*0.2); }
+    if(t3RoomLight){ t3RoomLight.color.setHex(0xfff2d6); t3RoomLight.intensity=1.10; }
+  } else { // noon
+    t3Scene.background = new THREE.Color(th.bg);
+    if(t3Ambient){ t3Ambient.color.setHex(0xffffff); t3Ambient.intensity=0.55; }
+    if(t3Hemi){ t3Hemi.color.setHex(0xdfe9ff); t3Hemi.groundColor.setHex(0x30291f); t3Hemi.intensity=0.45; }
+    if(t3Sun){ t3Sun.color.setHex(0xfff2df); t3Sun.intensity=0.90; t3Sun.position.set(rW*0.4, 6, rH*0.2); }
+    if(t3RoomLight){ t3RoomLight.intensity=0; }
+  }
+}
 
 function apply3DTheme(){
   const isLight = document.body.classList.contains('light-mode');
   const th = isLight ? THEME_LIGHT : THEME_DARK;
   if(typeof THREE !== 'undefined'){
-    if(t3Scene) t3Scene.background = new THREE.Color(th.bg);
     if(t3FloorMesh) t3FloorMesh.material.color.setHex(th.floor);
     if(t3Scene && t3GridMesh){
       t3Scene.remove(t3GridMesh);
@@ -602,6 +666,7 @@ function apply3DTheme(){
     document.querySelectorAll('.ly3d-row').forEach(r=>r.style.color='');
     if(hint3d){ hint3d.style.background=''; hint3d.style.color=''; }
   }
+  applyTimeLighting();
 }
 
 // ─── 3Dシーン構築 ────────────────────────────────────────────
@@ -633,9 +698,6 @@ function buildRoom3D(roomData,opts){
   const doors=roomData.objects.filter(o=>o.isDoor);
   buildWalls3(t3WallGroup,rW,rH,doors);
   t3Scene.add(t3WallGroup);
-
-  const sun=t3Scene.getObjectByName('sun3');
-  if(sun){ sun.position.set(rW*.4,6,rH*.2); sun.target.position.set(rW/2,0,rH/2); }
 
   const RE_MID_STAGE=/デスクマット|モニター台|モニタースタンド|プロジェクター台/;
   const RE_SURFACE=/デスク|机|テーブル|作業台|カウンター|キャビネット|本棚|書庫|シェルフ|ロッカー|冷蔵庫|袖机|ワゴン|パレット|給湯室|キッチン|流し台|シンク|台$/;
@@ -769,6 +831,7 @@ function buildRoom3D(roomData,opts){
   }
 
   rebuildPeople3();
+  applyTimeLighting();
 }
 
 function initThreeEngine(){
@@ -784,14 +847,15 @@ function initThreeEngine(){
   t3Renderer.shadowMap.enabled=true; t3Renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   host.appendChild(t3Renderer.domElement);
 
-  t3Scene.add(new THREE.AmbientLight(0xffffff,.55));
-  t3Scene.add(new THREE.HemisphereLight(0xdfe9ff,0x30291f,.45));
-  const sun=new THREE.DirectionalLight(0xfff2df,.9);
-  sun.name='sun3'; sun.castShadow=true;
-  sun.shadow.mapSize.set(2048,2048);
-  sun.shadow.camera.left=-10; sun.shadow.camera.right=10;
-  sun.shadow.camera.top=10; sun.shadow.camera.bottom=-10; sun.shadow.camera.far=24;
-  t3Scene.add(sun); t3Scene.add(sun.target);
+  t3Ambient=new THREE.AmbientLight(0xffffff,.55); t3Scene.add(t3Ambient);
+  t3Hemi=new THREE.HemisphereLight(0xdfe9ff,0x30291f,.45); t3Scene.add(t3Hemi);
+  t3Sun=new THREE.DirectionalLight(0xfff2df,.9);
+  t3Sun.name='sun3'; t3Sun.castShadow=true;
+  t3Sun.shadow.mapSize.set(2048,2048);
+  t3Scene.add(t3Sun); t3Scene.add(t3Sun.target);
+  t3RoomLight=new THREE.PointLight(0xfff2d6,0,20);
+  t3RoomLight.name='roomLight3';
+  t3Scene.add(t3RoomLight);
 
   t3Groups={
     furniture:new THREE.Group(), outlet:new THREE.Group(),
@@ -815,6 +879,13 @@ function initThreeEngine(){
     t3LabelSprites.forEach(s=>s.visible=t3AlwaysLabels);
     t3People.forEach(p=>p.label.visible=t3AlwaysLabels&&p.mesh.visible);
   };
+
+  document.querySelectorAll('.tod3d').forEach(b=>{
+    b.addEventListener('click',()=>{
+      t3TimeOfDay=b.dataset.tod;
+      apply3DTheme();
+    });
+  });
 
   const PHI_MIN=.12,PHI_MAX=1.5;
   let drag=false,dragBtn=0,lastX=0,lastY=0,touchDist=null;
@@ -939,6 +1010,7 @@ function syncToThree(){
 }
 
 window._opApply3DTheme = apply3DTheme;
+window._opReapply3DLighting = applyTimeLighting;
 window._op3DStatus = function(){ return three3dFailed ? ('使えません — '+three3dFailMsg) : (three3dInitialized ? '初期化済み' : 'まだ使っていません'); };
 window._opSync3DIfOpen = function(){
   if(currentView!=='3d' || !three3dInitialized) return;

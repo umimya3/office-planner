@@ -1,132 +1,132 @@
-/* イースターエッグ: ラバーダック & ゴールデン・ディスコ（元データ・保存領域は無汚染） */
+/* イースターエッグ（元データ・保存領域は無汚染）
+   1) ヘッダーロゴ 5連打 → ゴールデン・ディスコ (ON/OFF)
+   2) 3Dシムの時計(09:00) 5連打 → 歩く人物がラバーダック化 (ON/OFF) */
 (function(){
 'use strict';
 
-let mode = 'off'; // 'off' | 'duck' | 'disco'
-let clickCount = 0, clickTimer = null;
+let discoMode = false;
+let duckPeopleMode = false;
+
 let raf2D = null, last2D = 0;
 let raf3D = null;
 
-// 3D一時変更の退避用（OFF時に完全復元する）
-let easterGroup = null;
-let duckTemplate = null;
+// 3Dディスコ一時変更の退避用
+let discoGroup = null;
 let goldFurnMat = null, goldFloorMat = null, goldWallMat = null;
-const hiddenMeshes = [];
 const savedMats = new Map();
 const savedLights = [];
 let savedBg = null;
-let appliedRef = null;
+let appliedDiscoFloor = null;
 
-// ─── トリガー（ロゴ5連打 ＋ 発動中バッジ） ───────────────────
+// 3D人物アヒル化用
+let duckTemplate = null;
+
+// ─── 1. トリガー: ロゴ5連打 → ゴールデン・ディスコ ────────────
 const logo = document.querySelector('#header .logo');
-const badge = document.createElement('span');
-badge.id = 'easter-badge';
-badge.style.cssText = 'display:none;margin-left:6px;padding:2px 6px;border-radius:10px;font-size:11px;cursor:pointer;border:1px solid var(--border);background:var(--surface2);vertical-align:middle;user-select:none;';
-badge.title = 'クリックで裏モード切替 / 解除';
+const discoBadge = document.createElement('span');
+discoBadge.id = 'easter-disco-badge';
+discoBadge.textContent = '🪩';
+discoBadge.title = 'クリックでゴールデン・ディスコを解除';
+discoBadge.style.cssText = 'display:none;margin-left:6px;padding:2px 6px;border-radius:10px;font-size:11px;cursor:pointer;border:1px solid var(--border);background:var(--surface2);vertical-align:middle;user-select:none;';
+
 if(logo){
+  let cnt = 0, tm = null;
   logo.style.cursor = 'pointer';
-  logo.parentNode.insertBefore(badge, logo.nextSibling);
+  logo.parentNode.insertBefore(discoBadge, logo.nextSibling);
   logo.addEventListener('click', ()=>{
-    if(mode !== 'off'){ cycleMode(); return; }
-    clickCount++;
-    clearTimeout(clickTimer);
-    clickTimer = setTimeout(()=>{ clickCount = 0; }, 1200);
-    if(clickCount >= 5){
-      clickCount = 0;
-      cycleMode();
-    }
+    if(discoMode){ toggleDisco(false); return; }
+    cnt++; clearTimeout(tm); tm = setTimeout(()=>{ cnt = 0; }, 1200);
+    if(cnt >= 5){ cnt = 0; toggleDisco(true); }
   });
-  badge.addEventListener('click', cycleMode);
+  discoBadge.addEventListener('click', ()=> toggleDisco(false));
 }
 
-function cycleMode(){
-  const next = mode === 'off' ? 'duck' : (mode === 'duck' ? 'disco' : 'off');
-  setMode(next);
-}
-
-function setMode(next){
-  cleanup3D();
-  stopLoops();
-  mode = next;
-
-  if(mode === 'duck'){
-    badge.style.display = 'inline-block';
-    badge.textContent = '🐥';
-    if(typeof showToast === 'function') showToast('🐥 裏モード：ラバーダック・オフィス！（3D表示がおすすめ）', 3200);
-    startLoops();
-  } else if(mode === 'disco'){
-    badge.style.display = 'inline-block';
-    badge.textContent = '🪩';
-    if(typeof showToast === 'function') showToast('🪩 裏モード：ゴールデン・ディスコ！（3D表示がおすすめ）', 3200);
-    startLoops();
+function toggleDisco(on){
+  discoMode = !!on;
+  window._opEasterDiscoActive = discoMode;
+  cleanupDisco3D();
+  discoBadge.style.display = discoMode ? 'inline-block' : 'none';
+  if(discoMode){
+    if(typeof showToast === 'function') showToast('🪩 ゴールデン・ディスコ発動！（3D表示がおすすめ）', 3000);
   } else {
-    badge.style.display = 'none';
-    if(typeof showToast === 'function') showToast('🏢 通常オフィスに戻りました', 2000);
+    if(typeof showToast === 'function') showToast('🏢 通常照明に戻りました', 2000);
     if(typeof draw === 'function') draw();
   }
+  syncLoops();
 }
 
-// ─── 2Dオーバーレイ演出 ───────────────────────────────────────
+// ─── 2. トリガー: 3Dシム時計5連打 → 人物がラバーダック化 ─────
+const simClock = document.getElementById('sim3d-clock');
+const duckBadge = document.createElement('span');
+duckBadge.id = 'easter-duck-badge';
+duckBadge.textContent = '🐥';
+duckBadge.title = 'クリックで人物アヒル化を解除';
+duckBadge.style.cssText = 'display:none;margin-left:6px;padding:1px 6px;border-radius:10px;font-size:12px;cursor:pointer;border:1px solid #d48800;background:#ffe033;vertical-align:middle;user-select:none;';
+
+if(simClock){
+  let cnt = 0, tm = null;
+  simClock.style.cursor = 'pointer';
+  simClock.style.userSelect = 'none';
+  simClock.parentNode.insertBefore(duckBadge, simClock.nextSibling);
+  simClock.addEventListener('click', ()=>{
+    if(duckPeopleMode){ toggleDuckPeople(false); return; }
+    cnt++; clearTimeout(tm); tm = setTimeout(()=>{ cnt = 0; }, 1200);
+    if(cnt >= 5){ cnt = 0; toggleDuckPeople(true); }
+  });
+  duckBadge.addEventListener('click', ()=> toggleDuckPeople(false));
+}
+
+function toggleDuckPeople(on){
+  duckPeopleMode = !!on;
+  if(!duckPeopleMode) cleanupDuckPeople3D();
+  duckBadge.style.display = duckPeopleMode ? 'inline-block' : 'none';
+  if(duckPeopleMode){
+    if(typeof showToast === 'function') showToast('🐥 スタッフ全員がラバーダックになりました！', 3000);
+  } else {
+    if(typeof showToast === 'function') showToast('🚶 スタッフに戻りました', 2000);
+  }
+  syncLoops();
+}
+
+// ─── 2Dオーバーレイ演出（ディスコ時） ─────────────────────────
 const _prevOverlay = window._opDrawOverlays;
 window._opDrawOverlays = function(){
   if(typeof _prevOverlay === 'function') _prevOverlay();
-  if(mode === 'off' || typeof ctx === 'undefined' || typeof objects === 'undefined') return;
+  if(!discoMode || typeof ctx === 'undefined' || typeof objects === 'undefined') return;
 
   const t = performance.now() / 1000;
   const RW = mToPx(roomW), RH = mToPx(roomH);
 
-  if(mode === 'disco'){
+  ctx.save();
+  ctx.fillStyle = 'rgba(10, 6, 28, 0.35)';
+  ctx.fillRect(0, 0, RW, RH);
+  const cols = ['#ff33aa','#33ddff','#ffd700','#66ff66','#aa55ff'];
+  for(let i = 0; i < 5; i++){
+    const ang = t * (0.9 + i * 0.23) + i * 1.25;
+    const sx = RW * 0.5 + Math.cos(ang) * RW * 0.34;
+    const sy = RH * 0.5 + Math.sin(ang * 1.3) * RH * 0.34;
+    const rad = Math.max(24, Math.min(RW, RH) * 0.16);
+    const grd = ctx.createRadialGradient(sx, sy, 2, sx, sy, rad);
+    grd.addColorStop(0, cols[i] + '88');
+    grd.addColorStop(1, cols[i] + '00');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(sx, sy, rad, 0, Math.PI * 2); ctx.fill();
+  }
+  for(const o of objects){
+    if(typeof isLayerVisible === 'function' && !isLayerVisible(o.layerId || 1)) continue;
+    if(o.isWindow || o.isStair || /^壁/.test(o.defName||'')) continue;
+    const pw = mToPx(o.w), ph = mToPx(o.h);
     ctx.save();
-    ctx.fillStyle = 'rgba(10, 6, 28, 0.35)';
-    ctx.fillRect(0, 0, RW, RH);
-    const cols = ['#ff33aa','#33ddff','#ffd700','#66ff66','#aa55ff'];
-    for(let i = 0; i < 5; i++){
-      const ang = t * (0.9 + i * 0.23) + i * 1.25;
-      const sx = RW * 0.5 + Math.cos(ang) * RW * 0.34;
-      const sy = RH * 0.5 + Math.sin(ang * 1.3) * RH * 0.34;
-      const rad = Math.max(24, Math.min(RW, RH) * 0.16);
-      const grd = ctx.createRadialGradient(sx, sy, 2, sx, sy, rad);
-      grd.addColorStop(0, cols[i] + '88');
-      grd.addColorStop(1, cols[i] + '00');
-      ctx.fillStyle = grd;
-      ctx.beginPath(); ctx.arc(sx, sy, rad, 0, Math.PI * 2); ctx.fill();
-    }
-    // 家具を金色に縁取り
-    for(const o of objects){
-      if(typeof isLayerVisible === 'function' && !isLayerVisible(o.layerId || 1)) continue;
-      if(o.isWindow || o.isStair || /^壁/.test(o.defName||'')) continue;
-      const pw = mToPx(o.w), ph = mToPx(o.h);
-      ctx.save();
-      ctx.translate(mToPx(o.x) + pw/2, mToPx(o.y) + ph/2);
-      ctx.rotate((o.rot || 0) * Math.PI / 180);
-      ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2.2;
-      ctx.strokeRect(-pw/2, -ph/2, pw, ph);
-      ctx.restore();
-    }
-    ctx.restore();
-  } else if(mode === 'duck'){
-    ctx.save();
-    for(const o of objects){
-      if(typeof isLayerVisible === 'function' && !isLayerVisible(o.layerId || 1)) continue;
-      if(o.isWindow || o.isStair || /^壁/.test(o.defName||'')) continue;
-      const pw = mToPx(o.w), ph = mToPx(o.h);
-      const cx = mToPx(o.x) + pw/2, cy = mToPx(o.y) + ph/2;
-      const bob = Math.sin(t * 4 + o.id) * 2.5;
-      const r = Math.max(7, Math.min(pw, ph) * 0.36);
-      ctx.save();
-      ctx.translate(cx, cy + bob);
-      ctx.fillStyle = '#ffe033'; ctx.strokeStyle = '#d48800'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.font = `${Math.max(10, Math.round(r * 1.25))}px sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('🐥', 0, 1);
-      ctx.restore();
-    }
+    ctx.translate(mToPx(o.x) + pw/2, mToPx(o.y) + ph/2);
+    ctx.rotate((o.rot || 0) * Math.PI / 180);
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2.2;
+    ctx.strokeRect(-pw/2, -ph/2, pw, ph);
     ctx.restore();
   }
+  ctx.restore();
 };
 
-// ─── 3Dアヒル・テンプレート生成 ───────────────────────────────
+// ─── 3Dアヒル・テンプレート ───────────────────────────────────
 function getDuckTemplate(){
   if(duckTemplate) return duckTemplate;
   const g = new THREE.Group();
@@ -143,12 +143,10 @@ function getDuckTemplate(){
     m.castShadow = true; m.receiveShadow = true;
     g.add(m); return m;
   };
-  // 胴体 & 尻尾 & 翼
   add(new THREE.SphereGeometry(0.32, 16, 12), yellow, 0, 0.27, -0.04, 1.0, 0.85, 1.32);
   add(new THREE.ConeGeometry(0.10, 0.22, 10), yellow, 0, 0.40, -0.45, 1, 1, 1, -0.8, 0);
   add(new THREE.SphereGeometry(0.17, 12, 10), yellow, -0.30, 0.28, -0.04, 0.35, 0.65, 1.15, 0, 0.2);
   add(new THREE.SphereGeometry(0.17, 12, 10), yellow,  0.30, 0.28, -0.04, 0.35, 0.65, 1.15, 0, -0.2);
-  // 頭 & くちばし & 目
   add(new THREE.SphereGeometry(0.21, 16, 12), yellow, 0, 0.60, 0.22);
   add(new THREE.SphereGeometry(0.10, 12, 8), orange, 0, 0.56, 0.44, 1.15, 0.42, 1.45);
   add(new THREE.SphereGeometry(0.08, 12, 8), orange, 0, 0.52, 0.41, 0.95, 0.32, 1.25);
@@ -160,193 +158,214 @@ function getDuckTemplate(){
   return g;
 }
 
-// ─── 3D裏モード適用・アニメーション ───────────────────────────
-function apply3DEaster(refs){
-  cleanup3D();
+// ─── 3Dディスコ適用・解除 ─────────────────────────────────────
+function applyDisco3D(refs){
+  cleanupDisco3D();
   const { scene, floorMesh, groups } = refs;
   if(!scene || !groups || !groups.furniture) return;
 
-  easterGroup = new THREE.Group();
-  easterGroup.name = 'op-easter-3d';
-  scene.add(easterGroup);
-  appliedRef = floorMesh;
+  discoGroup = new THREE.Group();
+  discoGroup.name = 'op-easter-disco';
+  scene.add(discoGroup);
+  appliedDiscoFloor = floorMesh;
 
-  if(mode === 'duck'){
-    const tpl = getDuckTemplate();
-    const box = new THREE.Box3(), sz = new THREE.Vector3(), ct = new THREE.Vector3();
-    for(const child of groups.furniture.children){
-      const o = child.userData || {};
-      const nm = (o.defName || o.name || '').trim();
-      if(o.isWindow || o.isStair || /^壁/.test(nm)) continue;
-      box.setFromObject(child);
-      if(box.isEmpty()) continue;
-      box.getSize(sz); box.getCenter(ct);
-      if(sz.y < 0.04) continue; // 床ゾーン・マット類は残す
-
-      child.visible = false;
-      hiddenMeshes.push(child);
-
-      const duck = tpl.clone();
-      const s = Math.min(Math.max(Math.min(sz.x, sz.z) * 1.15, 0.26), 1.45);
-      duck.scale.set(s, s, s);
-      duck.position.set(ct.x, box.min.y, ct.z);
-      duck.rotation.y = child.rotation.y;
-      duck.userData = { baseY: box.min.y, baseRotY: child.rotation.y, phase: (o.id || 1) * 1.37 };
-      easterGroup.add(duck);
-    }
-  } else if(mode === 'disco'){
-    // 背景＆照明をナイトクラブ風に
-    if(scene.background){ savedBg = scene.background.clone(); scene.background.setHex(0x06040f); }
-    for(const ch of scene.children){
-      if(ch.isLight){ savedLights.push({ light: ch, intensity: ch.intensity }); ch.intensity *= 0.25; }
-    }
-
-    // ゴールドマテリアル（共通利用）
-    if(!goldFurnMat)  goldFurnMat  = new THREE.MeshStandardMaterial({ color: 0xffd23f, metalness: 0.68, roughness: 0.25, emissive: 0x3b2800 });
-    if(!goldFloorMat) goldFloorMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.62, roughness: 0.30, emissive: 0x221800 });
-    if(!goldWallMat)  goldWallMat  = new THREE.MeshStandardMaterial({ color: 0xf5d76e, metalness: 0.50, roughness: 0.35, emissive: 0x2a1f00, transparent: true, opacity: 0.9 });
-
-    if(floorMesh){ savedMats.set(floorMesh, floorMesh.material); floorMesh.material = goldFloorMat; }
-    groups.furniture.traverse(n=>{
-      if(!n.isMesh) return;
-      const o = n.userData || {};
-      if(o.isWindow) return;
-      savedMats.set(n, n.material);
-      n.material = goldFurnMat;
-    });
-    // 壁グループも金色に（t3WallGroup相当）
-    const grpSet = new Set(Object.values(groups));
-    for(const ch of scene.children){
-      if(ch.isGroup && !grpSet.has(ch) && ch !== easterGroup){
-        ch.traverse(n=>{ if(n.isMesh){ savedMats.set(n, n.material); n.material = goldWallMat; } });
-      }
-    }
-
-    const rW = floorMesh ? floorMesh.geometry.parameters.width  : 8;
-    const rH = floorMesh ? floorMesh.geometry.parameters.height : 6;
-    const cx = rW / 2, cz = rH / 2;
-
-    // ミラーボール
-    const mbPivot = new THREE.Group();
-    mbPivot.position.set(cx, 2.35, cz);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.6, 8), new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8 }));
-    pole.position.y = 0.3;
-    const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.30, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.95, roughness: 0.08, emissive: 0x222238, flatShading: true }));
-    mbPivot.add(pole, ball);
-    easterGroup.add(mbPivot);
-
-    // カラフルな回転ポイントライト（負荷を抑えつつ華やかに）
-    const lightCols = [0xff22aa, 0x22ddff, 0xffdd22];
-    const pLights = lightCols.map((col, i)=>{
-      const pl = new THREE.PointLight(col, 1.8, Math.max(rW, rH) * 1.4);
-      pl.position.set(cx, 2.1, cz);
-      easterGroup.add(pl);
-      return { pl, idx: i };
-    });
-
-    // 床を踊る光のスポット円盤
-    const spotDisks = [];
-    const spotCols = [0xff22aa, 0x22ddff, 0xaa44ff, 0x44ff77, 0xffcc22, 0xff4455];
-    for(let i = 0; i < 10; i++){
-      const dm = new THREE.Mesh(
-        new THREE.CircleGeometry(0.42 + (i % 3) * 0.14, 18),
-        new THREE.MeshBasicMaterial({ color: spotCols[i % spotCols.length], transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false })
-      );
-      dm.rotation.x = -Math.PI / 2;
-      dm.position.set(cx, 0.015 + i * 0.0005, cz);
-      easterGroup.add(dm);
-      spotDisks.push({ dm, i, rx: rW * (0.25 + (i % 3) * 0.12), rz: rH * (0.25 + ((i + 1) % 3) * 0.12) });
-    }
-
-    easterGroup.userData.disco = { mbPivot, pLights, spotDisks, cx, cz, rW, rH };
+  if(scene.background){ savedBg = scene.background.clone(); scene.background.setHex(0x06040f); }
+  for(const ch of scene.children){
+    if(ch.isLight){ savedLights.push({ light: ch, intensity: ch.intensity }); ch.intensity *= 0.22; }
   }
+
+  if(!goldFurnMat)  goldFurnMat  = new THREE.MeshStandardMaterial({ color: 0xffd23f, metalness: 0.68, roughness: 0.25, emissive: 0x3b2800 });
+  if(!goldFloorMat) goldFloorMat = new THREE.MeshStandardMaterial({ color: 0xd4af37, metalness: 0.62, roughness: 0.30, emissive: 0x221800 });
+  if(!goldWallMat)  goldWallMat  = new THREE.MeshStandardMaterial({ color: 0xf5d76e, metalness: 0.50, roughness: 0.35, emissive: 0x2a1f00, transparent: true, opacity: 0.9 });
+
+  if(floorMesh){ savedMats.set(floorMesh, floorMesh.material); floorMesh.material = goldFloorMat; }
+  groups.furniture.traverse(n=>{
+    if(!n.isMesh) return;
+    const o = n.userData || {};
+    if(o.isWindow) return;
+    savedMats.set(n, n.material); n.material = goldFurnMat;
+  });
+  const grpSet = new Set(Object.values(groups));
+  for(const ch of scene.children){
+    if(ch.isGroup && !grpSet.has(ch) && ch !== discoGroup){
+      ch.traverse(n=>{ if(n.isMesh){ savedMats.set(n, n.material); n.material = goldWallMat; } });
+    }
+  }
+
+  const rW = floorMesh ? floorMesh.geometry.parameters.width  : 8;
+  const rH = floorMesh ? floorMesh.geometry.parameters.height : 6;
+  const cx = rW / 2, cz = rH / 2;
+
+  const mbPivot = new THREE.Group();
+  mbPivot.position.set(cx, 2.35, cz);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.6, 8), new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8 }));
+  pole.position.y = 0.3;
+  const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.30, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.95, roughness: 0.08, emissive: 0x222238, flatShading: true }));
+  mbPivot.add(pole, ball);
+  discoGroup.add(mbPivot);
+
+  const pLights = [0xff22aa, 0x22ddff, 0xffdd22].map((col, idx)=>{
+    const pl = new THREE.PointLight(col, 1.8, Math.max(rW, rH) * 1.4);
+    pl.position.set(cx, 2.1, cz);
+    discoGroup.add(pl);
+    return { pl, idx };
+  });
+
+  const spotDisks = [];
+  const spotCols = [0xff22aa, 0x22ddff, 0xaa44ff, 0x44ff77, 0xffcc22, 0xff4455];
+  for(let i = 0; i < 10; i++){
+    const dm = new THREE.Mesh(
+      new THREE.CircleGeometry(0.42 + (i % 3) * 0.14, 18),
+      new THREE.MeshBasicMaterial({ color: spotCols[i % spotCols.length], transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false })
+    );
+    dm.rotation.x = -Math.PI / 2;
+    dm.position.set(cx, 0.015 + i * 0.0005, cz);
+    discoGroup.add(dm);
+    spotDisks.push({ dm, i, rx: rW * (0.25 + (i % 3) * 0.12), rz: rH * (0.25 + ((i + 1) % 3) * 0.12) });
+  }
+
+  discoGroup.userData.disco = { mbPivot, pLights, spotDisks, cx, cz, rW, rH };
 }
 
-function cleanup3D(){
-  while(hiddenMeshes.length){ const m = hiddenMeshes.pop(); if(m) m.visible = true; }
+function cleanupDisco3D(){
   savedMats.forEach((mat, mesh)=>{ if(mesh) mesh.material = mat; });
   savedMats.clear();
   while(savedLights.length){ const it = savedLights.pop(); if(it.light) it.light.intensity = it.intensity; }
 
   const refs = typeof window.get3DRefs === 'function' ? window.get3DRefs() : null;
-  if(refs && refs.scene && savedBg){ refs.scene.background.copy(savedBg); }
+  if(refs && refs.scene && savedBg) refs.scene.background.copy(savedBg);
   savedBg = null;
 
   if(refs && refs.groups && refs.groups.person){
     for(const p of refs.groups.person.children){
-      if(p.isGroup) p.position.y = 0;
+      if(p.isGroup && p.userData && p.userData.rig) p.position.y = 0;
     }
   }
-  if(easterGroup){
-    if(easterGroup.parent) easterGroup.parent.remove(easterGroup);
-    easterGroup.traverse(n=>{
+  if(discoGroup){
+    if(discoGroup.parent) discoGroup.parent.remove(discoGroup);
+    discoGroup.traverse(n=>{
       if(n.geometry) n.geometry.dispose();
-      if(n.material && n.material !== goldFurnMat && n.material !== goldFloorMat && n.material !== goldWallMat){
-        if(!duckTemplate || !duckTemplate.children.some(d=>d.material === n.material)) n.material.dispose();
-      }
+      if(n.material && n.material !== goldFurnMat && n.material !== goldFloorMat && n.material !== goldWallMat) n.material.dispose();
     });
-    easterGroup = null;
+    discoGroup = null;
   }
-  appliedRef = null;
+  appliedDiscoFloor = null;
+  if(typeof window._opReapply3DLighting === 'function') window._opReapply3DLighting();
 }
 
-// ─── アニメーションループ ─────────────────────────────────────
-function startLoops(){
-  const tick2D = (now)=>{
-    if(mode === 'off'){ raf2D = null; return; }
-    raf2D = requestAnimationFrame(tick2D);
-    if(document.body.classList.contains('view3d-mode')) return;
-    if((typeof dragging !== 'undefined' && dragging) || (typeof draggingLine !== 'undefined' && draggingLine)) return;
-    if(now - last2D > 33){ last2D = now; if(typeof draw === 'function') draw(); }
-  };
-  raf2D = requestAnimationFrame(tick2D);
-
-  const tick3D = ()=>{
-    if(mode === 'off'){ raf3D = null; return; }
-    raf3D = requestAnimationFrame(tick3D);
-    if(!document.body.classList.contains('view3d-mode')) return;
-    const refs = typeof window.get3DRefs === 'function' ? window.get3DRefs() : null;
-    if(!refs || !refs.scene || !refs.floorMesh) return;
-
-    // 2D→3D切替でシーンが再構築されていたら自動で再適用
-    if(!easterGroup || easterGroup.parent !== refs.scene || appliedRef !== refs.floorMesh){
-      apply3DEaster(refs);
+// ─── 3D人物ラバーダック化 ────────────────────────────────────
+function syncDuckPeople3D(refs){
+  if(!refs || !refs.groups || !refs.groups.person) return;
+  const tpl = getDuckTemplate();
+  let idx = 0;
+  for(const ch of refs.groups.person.children){
+    if(!ch.isGroup || !ch.userData || !ch.userData.rig) continue;
+    const rig = ch.userData.rig;
+    rig.hips.visible = false;
+    let duck = ch.children.find(c => c.userData && c.userData._isEasterDuck);
+    if(!duck){
+      duck = tpl.clone();
+      duck.scale.set(0.72, 0.72, 0.72);
+      duck.userData = { _isEasterDuck: true, phase: idx * 1.15 };
+      ch.add(duck);
     }
-    const t = performance.now() / 1000;
-    if(mode === 'duck' && easterGroup){
-      for(const duck of easterGroup.children){
-        const u = duck.userData;
-        duck.position.y = u.baseY + Math.abs(Math.sin(t * 3.5 + u.phase)) * 0.09;
-        duck.rotation.y = u.baseRotY + Math.sin(t * 2.2 + u.phase) * 0.18;
-        duck.rotation.z = Math.sin(t * 4.4 + u.phase) * 0.06;
-      }
-    } else if(mode === 'disco' && easterGroup && easterGroup.userData.disco){
-      const d = easterGroup.userData.disco;
-      d.mbPivot.rotation.y = t * 1.4;
-      for(const { pl, idx } of d.pLights){
-        const a = t * 1.9 + idx * (Math.PI * 2 / 3);
-        pl.position.set(d.cx + Math.cos(a) * d.rW * 0.35, 2.05, d.cz + Math.sin(a) * d.rH * 0.35);
-      }
-      for(const s of d.spotDisks){
-        const a = t * (0.9 + (s.i % 4) * 0.35) + s.i * 0.9;
-        s.dm.position.x = d.cx + Math.cos(a) * s.rx;
-        s.dm.position.z = d.cz + Math.sin(a * 1.25) * s.rz;
-      }
-      // 人物たちも縦ノリで踊る
-      if(refs.groups && refs.groups.person){
-        let pi = 0;
-        for(const p of refs.groups.person.children){
-          if(p.isGroup && p.visible){ p.position.y = Math.abs(Math.sin(t * 7.5 + pi++ * 0.7)) * 0.14; }
+    idx++;
+  }
+}
+
+function cleanupDuckPeople3D(){
+  const refs = typeof window.get3DRefs === 'function' ? window.get3DRefs() : null;
+  if(!refs || !refs.groups || !refs.groups.person) return;
+  for(const ch of refs.groups.person.children){
+    if(!ch.isGroup || !ch.userData || !ch.userData.rig) continue;
+    ch.userData.rig.hips.visible = true;
+    const duck = ch.children.find(c => c.userData && c.userData._isEasterDuck);
+    if(duck) ch.remove(duck);
+  }
+}
+
+// ─── ループ管理 ──────────────────────────────────────────────
+function syncLoops(){
+  if(discoMode && !raf2D){
+    const tick2D = (now)=>{
+      if(!discoMode){ raf2D = null; return; }
+      raf2D = requestAnimationFrame(tick2D);
+      if(document.body.classList.contains('view3d-mode')) return;
+      if((typeof dragging !== 'undefined' && dragging) || (typeof draggingLine !== 'undefined' && draggingLine)) return;
+      if(now - last2D > 33){ last2D = now; if(typeof draw === 'function') draw(); }
+    };
+    raf2D = requestAnimationFrame(tick2D);
+  } else if(!discoMode && raf2D){
+    cancelAnimationFrame(raf2D); raf2D = null;
+  }
+
+  if((discoMode || duckPeopleMode) && !raf3D){
+    const tick3D = ()=>{
+      if(!discoMode && !duckPeopleMode){ raf3D = null; return; }
+      raf3D = requestAnimationFrame(tick3D);
+      if(!document.body.classList.contains('view3d-mode')) return;
+      const refs = typeof window.get3DRefs === 'function' ? window.get3DRefs() : null;
+      if(!refs || !refs.scene || !refs.floorMesh) return;
+
+      const t = performance.now() / 1000;
+
+      if(discoMode){
+        if(!discoGroup || discoGroup.parent !== refs.scene || appliedDiscoFloor !== refs.floorMesh){
+          applyDisco3D(refs);
+        }
+        if(discoGroup && discoGroup.userData.disco){
+          const d = discoGroup.userData.disco;
+          d.mbPivot.rotation.y = t * 1.4;
+          for(const { pl, idx } of d.pLights){
+            const a = t * 1.9 + idx * (Math.PI * 2 / 3);
+            pl.position.set(d.cx + Math.cos(a) * d.rW * 0.35, 2.05, d.cz + Math.sin(a) * d.rH * 0.35);
+          }
+          for(const s of d.spotDisks){
+            const a = t * (0.9 + (s.i % 4) * 0.35) + s.i * 0.9;
+            s.dm.position.x = d.cx + Math.cos(a) * s.rx;
+            s.dm.position.z = d.cz + Math.sin(a * 1.25) * s.rz;
+          }
         }
       }
-    }
-  };
-  raf3D = requestAnimationFrame(tick3D);
-}
 
-function stopLoops(){
-  if(raf2D){ cancelAnimationFrame(raf2D); raf2D = null; }
-  if(raf3D){ cancelAnimationFrame(raf3D); raf3D = null; }
+      if(duckPeopleMode){
+        syncDuckPeople3D(refs);
+        if(refs.groups && refs.groups.person){
+          for(const ch of refs.groups.person.children){
+            if(!ch.isGroup || !ch.userData || !ch.userData.rig || !ch.visible) continue;
+            const rig = ch.userData.rig;
+            const duck = ch.children.find(c => c.userData && c.userData._isEasterDuck);
+            if(!duck) continue;
+            const ph = duck.userData.phase;
+            const sitting = rig.hips.position.y < 0.65;
+            const walking = Math.abs(rig.legL.rotation.x) > 0.05;
+            const discoBounce = discoMode ? Math.abs(Math.sin(t * 7.5 + ph)) * 0.12 : 0;
+
+            if(sitting){
+              duck.position.y = 0.44 + discoBounce;
+              duck.rotation.z = discoMode ? Math.sin(t * 6 + ph) * 0.12 : Math.sin(t * 2 + ph) * 0.03;
+            } else if(walking){
+              duck.position.y = Math.abs(Math.sin(t * 9 + ph)) * 0.06 + discoBounce;
+              duck.rotation.z = Math.sin(t * 9 + ph) * 0.14;
+            } else {
+              duck.position.y = discoBounce;
+              duck.rotation.z = discoMode ? Math.sin(t * 6 + ph) * 0.14 : Math.sin(t * 2.5 + ph) * 0.04;
+            }
+          }
+        }
+      } else if(discoMode && refs.groups && refs.groups.person){
+        let pi = 0;
+        for(const p of refs.groups.person.children){
+          if(p.isGroup && p.userData && p.userData.rig && p.visible){
+            p.position.y = Math.abs(Math.sin(t * 7.5 + pi++ * 0.7)) * 0.14;
+          }
+        }
+      }
+    };
+    raf3D = requestAnimationFrame(tick3D);
+  } else if(!discoMode && !duckPeopleMode && raf3D){
+    cancelAnimationFrame(raf3D); raf3D = null;
+  }
 }
 
 })();
