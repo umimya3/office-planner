@@ -2,8 +2,8 @@
 'use strict';
 
 // バージョン情報
-const APP_VERSION = 'v1.13.3';
-const APP_UPDATED = '2026-11-25';
+const APP_VERSION = 'v1.14.0';
+const APP_UPDATED = '2026-11-26';
 window._opAppInfo = {version:APP_VERSION, updated:APP_UPDATED};
 
 if(typeof GENBA_DEFS !== 'undefined' && Array.isArray(GENBA_DEFS) && typeof FURN_DEFS !== 'undefined'){
